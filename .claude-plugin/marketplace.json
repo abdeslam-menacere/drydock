@@ -10,7 +10,10 @@
   "plugins": [
     {
       "name": "drydock",
-      "source": "./",
+      "source": {
+        "source": "github",
+        "repo": "abmenace_microsoft/drydock"
+      },
       "description": "Isolated worktrees and SHA-bound merge gates for AI coding agents. Gives every GitHub issue its own branch, worktree, and agent session, and refuses to open a pull request until review and QA have both passed against the current commit.",
       "version": "0.1.0",
       "author": {
