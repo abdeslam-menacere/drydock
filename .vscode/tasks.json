@@ -1,0 +1,94 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Drydock: status",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js status",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "group": "none"
+    },
+    {
+      "label": "Drydock: start a dock",
+      "detail": "Issue → branch + worktree + DOCK.md brief",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js start ${input:issue}",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: gate review --pass",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js gate ${input:issue} review --pass --note \"${input:note}\"",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: gate review --fail",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js gate ${input:issue} review --fail --note \"${input:note}\"",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: gate qa --pass",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js gate ${input:issue} qa --pass --note \"${input:note}\"",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: land (dry run)",
+      "detail": "Preview the PR body and gate receipt without pushing",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js land ${input:issue} --dry-run",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: land",
+      "detail": "Verify gates → push → open PR with receipt",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js land ${input:issue}",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: clean merged docks",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/bin/drydock.js clean --merged",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: open a Copilot session for this dock",
+      "detail": "Named, directory-scoped session — resume it later with the same name",
+      "type": "shell",
+      "command": "copilot --name \"dock-${input:issue}\" --add-dir . --deny-tool='shell(git push)'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Drydock: run tests",
+      "type": "shell",
+      "command": "node ${workspaceFolder}/test/smoke.test.js",
+      "problemMatcher": [],
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "issue",
+      "type": "promptString",
+      "description": "GitHub issue number"
+    },
+    {
+      "id": "note",
+      "type": "promptString",
+      "description": "Gate note — why this verdict? (recorded in the audit trail)"
+    }
+  ]
+}

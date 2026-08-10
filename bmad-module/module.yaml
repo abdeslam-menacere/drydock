@@ -1,0 +1,46 @@
+# Drydock — a BMAD custom module.
+#
+# Installed with:
+#   npx bmad-method install --custom-source https://github.com/<your-org>/drydock
+#
+# Drydock does not fork or vendor BMAD. It declares agents through BMAD's
+# documented module interface, so BMAD upgrades never require a merge.
+code: drydock
+name: Drydock
+version: 0.1.0
+description: >
+  Isolated execution and enforced merge gates for BMAD agents. Gives every
+  GitHub issue its own branch, its own git worktree, and its own developer,
+  and refuses to open a pull request until review and QA have both passed
+  against the current commit.
+author: <your-name>
+license: MIT
+
+# BMAD owns planning. Drydock owns execution isolation and merge governance.
+# We deliberately do NOT redefine analyst/pm/architect — bmm already has them.
+requires:
+  modules:
+    - bmm
+
+agents:
+  - id: drydock-dev
+    file: agents/drydock-dev.agent.yaml
+  - id: drydock-reviewer
+    file: agents/drydock-reviewer.agent.yaml
+  - id: drydock-qa
+    file: agents/drydock-qa.agent.yaml
+
+# Asked during `npx bmad-method install`, stored in _bmad/drydock/config.yaml
+config:
+  - key: base_branch
+    prompt: "Base branch that docks branch from"
+    default: main
+  - key: docks_dir
+    prompt: "Directory for isolated worktrees (relative to repo parent)"
+    default: "../.docks"
+  - key: gates
+    prompt: "Gates required before a PR may open (comma-separated, in order)"
+    default: "review,qa"
+  - key: editor
+    prompt: "Editor to open per dock (blank for headless/CI)"
+    default: code

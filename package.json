@@ -1,0 +1,21 @@
+{
+  "name": "drydock",
+  "version": "0.1.0",
+  "description": "Every feature gets its own dock. Nothing ships unreviewed. Isolated worktrees and enforced merge gates for AI coding agents.",
+  "type": "module",
+  "bin": { "drydock": "bin/drydock.js" },
+  "engines": { "node": ">=20.12" },
+  "files": ["bin", "src", "skills", "bmad-module", "plugin.json", "README.md", "LICENSE"],
+  "repository": { "type": "git", "url": "git+https://github.com/abmenace_microsoft/drydock.git" },
+  "homepage": "https://github.com/abmenace_microsoft/drydock#readme",
+  "scripts": {
+    "test": "node test/smoke.test.js",
+    "drydock": "node bin/drydock.js"
+  },
+  "keywords": [
+    "ai-agents", "git-worktree", "code-review", "sdlc",
+    "github-copilot", "claude-code", "bmad", "agentic-sdlc"
+  ],
+  "license": "MIT",
+  "dependencies": {}
+}

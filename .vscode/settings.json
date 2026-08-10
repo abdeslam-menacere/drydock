@@ -1,0 +1,18 @@
+{
+  // Drydock keeps agent instructions in .github/ so one set of files serves
+  // Copilot, Claude Code, Cursor, and Codex alike.
+  "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+
+  // Dock worktrees live beside the repo, not inside it. Nothing to exclude here —
+  // but keep generated state visible: .drydock/ is the audit trail, not noise.
+  "files.exclude": {
+    "**/.git": true,
+    "**/node_modules": true
+  },
+  "search.exclude": {
+    "**/node_modules": true
+  },
+
+  "git.branchProtection": ["main"],
+  "git.branchProtectionPrompt": "alwaysPrompt"
+}

@@ -1,0 +1,73 @@
+name: Drydock Gates
+
+# Server-side enforcement. The CLI is a convenience; THIS is the thing that
+# makes "nothing merges unreviewed" true. Make this a required status check
+# in branch protection on your base branch.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify-receipt:
+    name: Verify gate receipt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check gates passed against this exact commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            const head = context.payload.pull_request.head.sha;
+
+            if (!body.includes('<!-- drydock-receipt:v1 -->')) {
+              core.setFailed(
+                'No Drydock gate receipt in this PR.\n' +
+                'PRs must be opened with `drydock land <issue>` so gate verdicts are attached.'
+              );
+              return;
+            }
+
+            const required = (process.env.DRYDOCK_GATES || 'review,qa').split(',');
+            const rows = [...body.matchAll(/^\|\s*([a-z0-9-]+)\s*\|\s*✅\s*pass\s*\|\s*`([0-9a-f]{7,40})`/gim)];
+            const seen = new Map(rows.map(r => [r[1], r[2]]));
+
+            const problems = [];
+            for (const gate of required) {
+              const sha = seen.get(gate);
+              if (!sha) problems.push(`gate "${gate}" is missing or did not pass`);
+              else if (!head.startsWith(sha)) {
+                problems.push(`gate "${gate}" is STALE — passed at ${sha}, PR head is ${head.slice(0,8)}`);
+              }
+            }
+
+            if (problems.length) {
+              core.setFailed(
+                'Drydock gates not satisfied:\n' + problems.map(p => '  • ' + p).join('\n') +
+                '\n\nRe-run the gates against the current head, then `drydock land` again.'
+              );
+            } else {
+              core.notice(`All Drydock gates green at ${head.slice(0,8)}`);
+            }
+
+  scope-check:
+    name: Scope discipline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Warn on unusually wide diffs
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          FILES=$(git diff --name-only "$BASE"...HEAD | wc -l)
+          echo "Files changed: $FILES"
+          if [ "$FILES" -gt 25 ]; then
+            echo "::warning::$FILES files changed. One issue, one dock — is this really a single unit of work?"
+          fi

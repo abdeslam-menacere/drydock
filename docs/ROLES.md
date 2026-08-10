@@ -1,0 +1,41 @@
+# Why three roles and not seven
+
+Most agent-role frameworks ship an Analyst, a PM, an Architect, a Scrum Master, a Product Owner, a Developer, a QA, and an Orchestrator. Drydock ships three. This is deliberate.
+
+## The test a role has to pass
+
+**A role exists only if it owns a gate with a pass/fail verdict and a real consequence for failing.**
+
+Apply that test:
+
+| Candidate role | Owns a gate? | Verdict |
+|---|---|---|
+| Dock Developer | No, but it's the unit of work | Keep |
+| Principal Reviewer | Yes — blocks QA | Keep |
+| QA Validator | Yes — blocks the PR | Keep |
+| Product Owner | No — the human writes the issue | **Cut** |
+| Scrum Master | No — orchestration is `drydock start` | **Cut** |
+| Release Manager | No — that's branch protection and CI | **Cut** |
+| Architect | Sometimes — but BMAD's `bmm` module already does this at planning time | **Delegate to BMAD** |
+
+Everything that failed the test was ceremony: a persona that produces a document a human then approves. That's the human doing the work with extra token cost and an illusion of process.
+
+## The specific case against a Product Owner agent
+
+The GitHub issue is the requirement. You wrote it. An agent that expands your issue into a PRD which you then approve has not removed work from you — it has added a review step and a new place for requirements to drift. Worse, it launders your uncertainty into confident prose, which is exactly the failure the review gate exists to catch.
+
+Keep the human as PO. It's the one role that cannot be delegated, because it's the one that owns the definition of "correct."
+
+## What the three actually do
+
+**Dock Developer** — implements one issue in one worktree. Its hardest constraint isn't writing code, it's *not* writing code: scope creep is an automatic review failure, so it must route noticed problems into `Follow-ups` instead of fixing them.
+
+**Principal Reviewer** — checks scope discipline first, design second, and explicitly does *not* check style. It is instructed to fail things. A gate with a 100% pass rate is not a gate.
+
+**QA Validator** — does not re-review design. Scores acceptance criteria adversarially and demands evidence per criterion. "The code looks like it does this" is not evidence.
+
+## Where these live
+
+One file per role in `.github/agents/`, which is simultaneously Copilot's custom-agent path, a plain instruction file readable by Claude Code and Cursor, and the target that Drydock's BMAD agent definitions point at.
+
+One source of truth. When the model landscape changes again, you keep your process.
