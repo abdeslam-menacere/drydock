@@ -44,10 +44,18 @@ You get, wired together and ready:
 | `.github/ISSUE_TEMPLATE/` | An issue form built around *explicitly out of scope* |
 | `.vscode/` | Tasks for every dock command, plus extension recommendations |
 
-Optionally install the skills into Copilot CLI globally:
+Install the skills into Copilot CLI globally:
 
 ```bash
-copilot plugin install <you>/<your-new-repo>
+copilot plugin marketplace add <you>/<your-new-repo>
+copilot plugin install drydock@drydock
+```
+
+If your repo is **private**, export a token first — the installer clones over
+git and will otherwise fail with a confusing `Access is denied` error:
+
+```bash
+export GH_TOKEN="$(gh auth token)"
 ```
 
 ## The problem

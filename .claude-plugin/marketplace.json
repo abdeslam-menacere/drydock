@@ -1,0 +1,32 @@
+{
+  "name": "drydock",
+  "metadata": {
+    "description": "Isolated worktrees and SHA-bound merge gates for AI coding agents",
+    "version": "0.1.0"
+  },
+  "owner": {
+    "name": "Abdeslam Menacere"
+  },
+  "plugins": [
+    {
+      "name": "drydock",
+      "source": "./",
+      "description": "Isolated worktrees and SHA-bound merge gates for AI coding agents. Gives every GitHub issue its own branch, worktree, and agent session, and refuses to open a pull request until review and QA have both passed against the current commit.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Abdeslam Menacere"
+      },
+      "homepage": "https://github.com/abmenace_microsoft/drydock",
+      "repository": "https://github.com/abmenace_microsoft/drydock",
+      "keywords": [
+        "worktree",
+        "code-review",
+        "merge-gates",
+        "github",
+        "agentic-sdlc",
+        "copilot-cli"
+      ],
+      "license": "MIT"
+    }
+  ]
+}

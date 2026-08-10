@@ -121,9 +121,28 @@ What each flag buys you:
 - `--deny-tool='shell(git push)'` — the agent has no merge authority. Landing is
   a human decision, after gates.
 
-The plugin's skills load automatically and teach Copilot the loop, how to switch
-between docks, how to read the audit trail, and which GitHub operations are
-never its to perform.
+### Load the skills
+
+`.github/copilot-instructions.md` is picked up from the repo automatically. The
+four **skills** — the loop, dock switching, reading the audit trail, and GitHub
+operation policy — need installing once:
+
+```bash
+copilot plugin marketplace add <you>/<your-repo>
+copilot plugin install drydock@drydock
+copilot plugin list          # → drydock (v0.1.0)
+```
+
+Two things worth knowing:
+
+- **Private repo?** Export a token first, or the install fails with a misleading
+  `Access is denied (os error 5)`:
+  ```bash
+  export GH_TOKEN="$(gh auth token)"
+  ```
+- `copilot plugin install <owner>/<repo>` (direct, without a marketplace) also
+  works today but the CLI warns it is **deprecated** — marketplace installs are
+  the path that will keep working.
 
 **In VS Code instead:** open the dock folder, then <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> →
 *Tasks: Run Task* → **Drydock: open a Copilot session for this dock**. Every
