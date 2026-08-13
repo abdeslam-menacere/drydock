@@ -67,11 +67,56 @@ ok('qa now passes', dd(['gate', '412', 'qa', '--pass']).status === 0);
 console.log('\nland');
 const dry = dd(['land', '412', '--dry-run']);
 ok('dry-run succeeds with fresh gates', dry.status === 0, dry.stdout + dry.stderr);
-ok('receipt marker present', dry.stdout.includes('<!-- drydock-receipt:v1 -->'));
+ok('receipt marker present', dry.stdout.includes('**drydock-receipt:v1**'));
+ok('marker is not an HTML comment', !dry.stdout.includes('<!-- drydock-receipt'));
 const head = git(['rev-parse', 'HEAD'], dock.worktree);
 const rows = [...dry.stdout.matchAll(/^\|\s*([a-z0-9-]+)\s*\|\s*✅\s*pass\s*\|\s*`([0-9a-f]{7,40})`/gim)];
 ok('CI regex parses both gates', rows.length === 2, `parsed ${rows.length}`);
 ok('receipt SHAs match HEAD', rows.every((r) => head.startsWith(r[2])));
+
+console.log('\nCI contract');
+// The workflow and the CLI each used to carry a private copy of the receipt
+// contract, with nothing checking they agreed — that is how the HTML-comment
+// bug shipped. Read the real patterns out of the workflow file and apply them
+// to the CLI's real output, so the two cannot silently drift apart again.
+const wfPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.github/workflows/drydock-gates.yml');
+const wf = fs.readFileSync(wfPath, 'utf8');
+const literalOf = (name) => {
+  const m = wf.match(new RegExp(`^\\s*const ${name} = (/.*/[a-z]*);\\s*$`, 'm'));
+  return m && m[1];
+};
+const toRegExp = (lit) => {
+  const i = lit.lastIndexOf('/');
+  return new RegExp(lit.slice(1, i), lit.slice(i + 1));
+};
+const markerLit = literalOf('RECEIPT_MARKER');
+const rowLit = literalOf('ROW_RE');
+ok('workflow declares RECEIPT_MARKER', !!markerLit, 'expected `const RECEIPT_MARKER = /.../;` in the workflow');
+ok('workflow declares ROW_RE', !!rowLit, 'expected `const ROW_RE = /.../;` in the workflow');
+
+const MARKER = toRegExp(markerLit);
+const ROW = () => toRegExp(rowLit); // fresh each use — the /g flag is stateful
+
+ok("workflow's marker matches the CLI receipt", MARKER.test(dry.stdout));
+ok("workflow's row regex parses the CLI receipt", [...dry.stdout.matchAll(ROW())].length === 2);
+// The GitHub MCP server deletes HTML comments from PR bodies.
+ok('marker survives HTML-comment stripping', MARKER.test(dry.stdout.replace(/<!--[\s\S]*?-->/g, '')));
+ok('legacy HTML-comment marker still accepted', MARKER.test('Closes #1\n\n<!-- drydock-receipt:v1 -->\n### Drydock gate receipt\n'));
+
+// The workflow's verdict, evaluated here against the patterns it actually uses.
+const evaluate = (body, headSha, required = ['review', 'qa']) => {
+  if (!MARKER.test(body)) return ['no receipt'];
+  const seen = new Map([...body.matchAll(ROW())].map((r) => [r[1], r[2]]));
+  return required.flatMap((gate) => {
+    const sha = seen.get(gate);
+    if (!sha) return [`gate "${gate}" is missing or did not pass`];
+    return headSha.startsWith(sha) ? [] : [`gate "${gate}" is STALE`];
+  });
+};
+ok('CI accepts a fresh receipt', evaluate(dry.stdout, head).length === 0, evaluate(dry.stdout, head).join('; '));
+ok('CI fails a stale receipt', evaluate(dry.stdout, 'f'.repeat(40)).some((p) => p.includes('STALE')));
+ok('CI fails a gate that did not pass', evaluate(dry.stdout.replace('✅ pass', '❌ fail'), head).length > 0);
+ok('CI fails a missing receipt', evaluate('Closes #1\n\nNo receipt here.\n', head).length > 0);
 
 console.log('\nstale detection');
 fs.appendFileSync(path.join(dock.worktree, 'refund.js'), '// extra\n');

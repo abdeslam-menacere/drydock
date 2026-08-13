@@ -66,13 +66,19 @@ export default function land(args) {
   log.dim(`Clean up when merged: drydock clean ${issue}`);
 }
 
+// Plain bold text, not an HTML comment: the GitHub MCP server strips HTML
+// comments from PR bodies, which silently destroyed the marker CI gates on.
+// `.github/workflows/drydock-gates.yml` must detect exactly this line.
+const RECEIPT_MARKER = '**drydock-receipt:v1**';
+
 function renderReceipt(dock, cfg, head) {
   const rows = cfg.gates.map((n) => {
     const g = dock.gates[n];
     return `| ${n} | ✅ ${g.verdict} | \`${g.sha.slice(0, 8)}\` | ${g.by} | ${g.note || '—'} |`;
   }).join('\n');
   return [
-    '<!-- drydock-receipt:v1 -->',
+    RECEIPT_MARKER,
+    '',
     '### Drydock gate receipt',
     '',
     '| Gate | Verdict | Commit | By | Note |',
