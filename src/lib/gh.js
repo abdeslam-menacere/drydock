@@ -30,3 +30,20 @@ export function repoNameWithOwner(cwd) {
   const r = tryRun('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { cwd });
   return r.ok ? r.out : null;
 }
+
+/** Does the repo allow auto-merge? null when it cannot be determined. */
+export function autoMergeEnabled(cwd) {
+  const r = tryRun('gh', ['repo', 'view', '--json', 'autoMergeAllowed', '-q', '.autoMergeAllowed'], { cwd });
+  return r.ok ? r.out === 'true' : null;
+}
+
+/** Required status check contexts on a branch. null when it cannot be determined. */
+export function requiredChecks(branch, cwd) {
+  const nwo = repoNameWithOwner(cwd);
+  if (!nwo) return null;
+  const r = tryRun('gh', [
+    'api', `repos/${nwo}/branches/${branch}/protection/required_status_checks`,
+    '-q', '.contexts[]?',
+  ], { cwd });
+  return r.ok ? r.out.split('\n').map((s) => s.trim()).filter(Boolean) : null;
+}

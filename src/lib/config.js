@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { run, tryRun } from './sh.js';
 import { die } from './log.js';
+import { QUESTIONS } from './questions.js';
 
 export const CONFIG_FILE = 'drydock.config.json';
 export const STATE_DIR = '.drydock';
@@ -9,8 +10,9 @@ export const STATE_DIR = '.drydock';
 export const DEFAULTS = {
   $schema: 'https://drydock.dev/schema/v1.json',
   version: 1,
-  // Where isolated worktrees are created, relative to the repo root's parent.
-  docksDir: '../.docks',
+  // Where isolated worktrees are created, relative to the repo root. In-repo so
+  // that workspace-scoped agents can actually read the dock they are working in.
+  docksDir: '.docks',
   // Branch naming. {issue} and {slug} are substituted.
   branchPattern: 'feat/{issue}-{slug}',
   baseBranch: 'main',
@@ -24,7 +26,66 @@ export const DEFAULTS = {
     enabled: true,
     module: 'drydock',
   },
+
+  // --- Policy. Answered once by the setup interview, obeyed thereafter. ---
+  setup: { completed: false, at: null, schemaVersion: 0 },
+  autonomy: {
+    level: 'full',
+    merge: { enabled: true, method: 'squash', waitForChecks: true },
+    retriesOnGateFail: 2,
+  },
+  escalation: { bar: 'any-ambiguity', batchAtPlanTime: true },
+  comments: {
+    enabled: true,
+    verbosity: 'full',
+    cliLifecycle: true,
+    agentNarrative: true,
+  },
+  tools: { githubMcp: 'prefer' },
+  triggers: { slashCommand: true, cliRun: true },
 };
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+const clone = (v) => {
+  if (Array.isArray(v)) return v.map(clone);
+  if (isPlainObject(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clone(x)]));
+  return v;
+};
+
+/**
+ * Recursively merge `over` onto `base`, cloning as it goes. Arrays and scalars
+ * are replaced whole; only plain objects recurse. A config file that sets one
+ * nested key therefore keeps every sibling default instead of wiping the object
+ * it lives in — and the returned config never aliases DEFAULTS.
+ */
+export function deepMerge(base, over) {
+  if (over === undefined) return clone(base);
+  if (!isPlainObject(base) || !isPlainObject(over)) return clone(over);
+  const out = clone(base);
+  for (const [k, v] of Object.entries(over)) {
+    out[k] = k in out ? deepMerge(out[k], v) : clone(v);
+  }
+  return out;
+}
+
+/** Read a dotted path, e.g. `comments.verbosity`. Returns undefined if absent. */
+export function getPath(obj, dotted) {
+  return String(dotted).split('.').reduce((o, k) => (isPlainObject(o) ? o[k] : undefined), obj);
+}
+
+/** Write a dotted path, creating intermediate objects. Mutates and returns `obj`. */
+export function setPath(obj, dotted, value) {
+  const keys = String(dotted).split('.');
+  const last = keys.pop();
+  let node = obj;
+  for (const k of keys) {
+    if (!isPlainObject(node[k])) node[k] = {};
+    node = node[k];
+  }
+  node[last] = value;
+  return obj;
+}
 
 /**
  * Absolute path to the MAIN repo root, or exit.
@@ -52,11 +113,27 @@ export function loadConfig(root = repoRoot()) {
     die(`No ${CONFIG_FILE} found.`, 'Run `drydock init` first.');
   }
   const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
-  return { ...DEFAULTS, ...raw, bmad: { ...DEFAULTS.bmad, ...(raw.bmad || {}) } };
+  return deepMerge(DEFAULTS, raw);
 }
 
 export function saveConfig(cfg, root = repoRoot()) {
   fs.writeFileSync(configPath(root), JSON.stringify(cfg, null, 2) + '\n');
+  return cfg;
+}
+
+/** Has the human answered the setup interview? */
+export function isConfigured(cfg) {
+  return cfg?.setup?.completed === true;
+}
+
+/**
+ * Questions this config has never been asked — those introduced by a schema
+ * version newer than the one stored. An unconfigured repo stores 0, so it gets
+ * the whole set; bumping a question's schemaVersion later asks only that one.
+ */
+export function pendingQuestions(cfg, questions = QUESTIONS) {
+  const seen = Number(cfg?.setup?.schemaVersion) || 0;
+  return questions.filter((q) => q.schemaVersion > seen);
 }
 
 export function stateDir(root = repoRoot()) {

@@ -1,17 +1,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig, repoRoot, readDock, writeDock, slugify } from '../lib/config.js';
+import { loadConfig, repoRoot, readDock, writeDock, slugify, isConfigured } from '../lib/config.js';
 import { log, die } from '../lib/log.js';
 import { tryRun, has } from '../lib/sh.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
+import { runInterview } from './config.js';
 
-export default function start(args) {
+export default async function start(args) {
   const issue = args.find((a) => /^\d+$/.test(a));
   if (!issue) die('Usage: drydock start <issue-number>');
 
   const root = repoRoot();
-  const cfg = loadConfig(root);
+  let cfg = loadConfig(root);
+
+  // First use: settle how much Drydock should do on its own before it does any
+  // of it. Non-interactive shells get a notice and the defaults, never a block.
+  if (!isConfigured(cfg)) cfg = await runInterview(root);
 
   if (readDock(issue, root) && !args.includes('--force')) {
     die(`Dock for issue #${issue} already exists.`, 'Use --force to recreate, or `drydock status`.');
