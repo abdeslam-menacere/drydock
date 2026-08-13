@@ -13,5 +13,36 @@
   "bmad": {
     "enabled": true,
     "module": "drydock"
+  },
+  "setup": {
+    "completed": true,
+    "at": "2026-08-13T11:51:48.646Z",
+    "schemaVersion": 1
+  },
+  "autonomy": {
+    "level": "full",
+    "merge": {
+      "enabled": true,
+      "method": "squash",
+      "waitForChecks": true
+    },
+    "retriesOnGateFail": 2
+  },
+  "escalation": {
+    "bar": "any-ambiguity",
+    "batchAtPlanTime": true
+  },
+  "comments": {
+    "enabled": true,
+    "verbosity": "full",
+    "cliLifecycle": true,
+    "agentNarrative": true
+  },
+  "tools": {
+    "githubMcp": "prefer"
+  },
+  "triggers": {
+    "slashCommand": true,
+    "cliRun": true
   }
 }
