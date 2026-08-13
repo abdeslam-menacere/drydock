@@ -3,7 +3,7 @@ import { log, die } from '../lib/log.js';
 import { parseArgs } from '../lib/args.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
-import * as notify from '../notify.js';
+import * as notify from './notify.js';
 import { isAgent } from './gate.js';
 
 export default function land(args) {

@@ -5,7 +5,7 @@ import { log, die } from '../lib/log.js';
 import { tryRun, has } from '../lib/sh.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
-import * as notify from '../notify.js';
+import * as notify from './notify.js';
 import { runInterview } from './config.js';
 
 export default async function start(args) {

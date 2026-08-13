@@ -1,5 +1,5 @@
-import { log } from './lib/log.js';
-import * as gh from './lib/gh.js';
+import { log } from '../lib/log.js';
+import * as gh from '../lib/gh.js';
 
 // Ordered least to most talkative. `comments.verbosity` names one of these.
 const RANK = { off: 0, milestones: 1, 'milestones-findings': 2, full: 3 };

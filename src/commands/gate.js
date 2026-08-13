@@ -2,7 +2,7 @@ import { loadConfig, repoRoot, readDock, writeDock } from '../lib/config.js';
 import { log, die } from '../lib/log.js';
 import { parseArgs } from '../lib/args.js';
 import * as git from '../lib/git.js';
-import * as notify from '../notify.js';
+import * as notify from './notify.js';
 
 /**
  * Who is recording this verdict.
