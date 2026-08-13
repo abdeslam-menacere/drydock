@@ -14,20 +14,22 @@ Drydock addresses the second problem and treats the first as solved.
 
 Explicitly out of scope, permanently:
 
-- Being an agent runtime, model wrapper, or MCP server
+- Being an agent runtime or model wrapper
+- Being an MCP server. Drydock does not serve MCP — but its agents should prefer
+  GitHub MCP tools over shelling out to `gh` where both can do the job.
 - Replacing BMAD, Spec Kit, or GitHub Agent HQ
 - Planning, requirements elaboration, or architecture (BMAD's `bmm` module does this)
 - A GUI, dashboard, or web service in v1
 
 ## 3. Core invariant
 
-> **One issue → one branch → one worktree → one agent → gated merge.**
+> **One issue → one branch → one worktree → one agent → policy-gated merge.**
 
 Every property below derives from it:
 
 - Any change traces to exactly one GitHub issue.
 - Any two concurrent units of work are filesystem-isolated.
-- No agent has merge authority.
+- Merge authority belongs to the gates, not to whoever runs them. See §10.
 - Blast radius of a bad agent run is one branch.
 
 The invariant is machine-checkable, which is what separates it from a methodology.
@@ -132,6 +134,28 @@ Each worktree gets a generated `DOCK.md`: the issue body, the rules of the dock,
 
 ## 9. Open questions
 
-1. Should `gate` be runnable *by an agent*, or only by a human invoking an agent? Self-certification is the obvious hole. Current stance: an agent may produce the verdict, a human runs the command — and v0.4 makes the distinction cryptographic.
+1. ~~Should `gate` be runnable *by an agent*, or only by a human invoking an agent?~~ **Answered in §10:** yes, attributed, and context-isolated from the developer. Self-certification remains the hole; v0.4 makes the distinction cryptographic.
 2. Does `--merged` cleanup belong in the CLI or a GitHub Action on merge?
 3. Is per-dock editor launching worth keeping at all, given it caps parallelism at human window count? Current stance: keep it optional, default headless in CI.
+
+## 10. Autonomy decision
+
+Supersedes the human-gated posture in §3 and §9.1. `AGENTS.md` requires that any change weakening the invariant be recorded here rather than in a commit message. This is that record.
+
+The invariant becomes **policy-gated merge**. "Gated" said *who*. "Policy-gated" says *what*: the gates still exist, still bind to a SHA, still run in order, and still block the merge. What changed is that a human is no longer required to be the one who records the verdict.
+
+**1. Agents may record gate verdicts.** An agent verdict is attributed `agent:<role>` in the manifest's `by` field and in the PR receipt, so a reader can always tell an agent verdict from a human one.
+
+**2. Autonomy level is configuration, not code.** A first-run setup wizard asks once, persists the answer, and never asks again. Full autopilot, trust-but-verify, and fully manual are the same code path with different data. Nobody has to fork Drydock to keep a human on the gates.
+
+**3. Reviewer and QA agents must be context-independent from the developer agent.** They get the issue text and the diff. They do not get the developer's summary, its reasoning, or its session. A reviewer that reads the author's account of the change is a rubber stamp with extra steps — and an automated rubber stamp is worse than none, because it manufactures a green check nobody actually produced.
+
+**4. Accountability moves to the issue comment trail plus the receipt in the PR body.** With no human in the loop, the record *is* the oversight. Agents post their plan, their assumptions, their findings, real test output, and their verdicts to the issue; the receipt ties each verdict to a SHA. Together they answer "who approved what, against which commit" after the fact, which is the job the human in the loop was doing.
+
+**5. No bypass.** Autonomy is not exemption. There is still no `--skip-gates` and no `--force`. Gates still go stale on any new commit. An agent that cannot pass its own gates does not merge.
+
+### What this rests on
+
+With the human optional, the backstop is entirely server-side: the `drydock-gates` check, branch protection, and CODEOWNERS. Auto-merge with `drydock-gates` *not* set as a required status check merges immediately and unverified — strictly worse than the manual loop. Setup must verify it.
+
+§4.3 already said the server layer is the real one and the CLI is a convenience. This decision is what makes that literally true, and it promotes §4.4's residual risk from theoretical to load-bearing.
