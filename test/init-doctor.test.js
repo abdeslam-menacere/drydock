@@ -64,13 +64,11 @@ try {
 
   const before = snapshot();
   const blocked = drydock(['init']);
-  assert.notEqual(blocked.status, 0, 'non-TTY init without --yes must refuse to install');
   check(() => assert.notEqual(blocked.status, 0, 'non-TTY init without --yes must refuse to install'));
   check(() => assert.match(blocked.stdout + blocked.stderr, /--yes/));
   check(() => assert.deepEqual(snapshot(), before, 'refused init must not write any files'));
 
   const preview = drydock(['init', '--yes', '--dry-run']);
-  assert.equal(preview.status, 0, preview.stdout + preview.stderr);
   check(() => assert.equal(preview.status, 0, preview.stdout + preview.stderr));
   check(() => assert.match(preview.stdout, /create\s+drydock\.config\.json/i));
   check(() => assert.deepEqual(snapshot(), before, 'dry-run must not write any files'));
@@ -79,13 +77,10 @@ try {
     'init', '--yes', '--vscode', '--gates', 'review,security,qa',
     '--cli-spec', 'github:abmenace_microsoft/drydock#v0.1.0',
   ]);
-  assert.equal(installed.status, 0, installed.stdout + installed.stderr);
   const workflow = fs.readFileSync(path.join(repo, '.github/workflows/drydock-gates.yml'), 'utf8');
-  assert.match(workflow, /const REQUIRED_GATES = \["review","security","qa"\];/);
   check(() => assert.equal(installed.status, 0, installed.stdout + installed.stderr));
   check(() => assert.match(workflow, /const REQUIRED_GATES = \["review","security","qa"\];/));
   const tasks = JSON.parse(fs.readFileSync(path.join(repo, '.vscode/tasks.json'), 'utf8'));
-  assert.equal(tasks.tasks.some((task) => task.label === 'Drydock: run tests'), false);
   check(() => assert.equal(tasks.tasks.some((task) => task.label === 'Drydock: run tests'), false));
   check(() => assert.deepEqual(tasks.tasks[0].args.slice(0, 4), [
     '--yes', '--package', 'github:abmenace_microsoft/drydock#v0.1.0', 'drydock',
@@ -93,13 +88,11 @@ try {
 
   const afterInstall = snapshot();
   const rerun = drydock(['init', '--yes']);
-  assert.equal(rerun.status, 0, rerun.stdout + rerun.stderr);
   check(() => assert.equal(rerun.status, 0, rerun.stdout + rerun.stderr));
   check(() => assert.deepEqual(snapshot(), afterInstall, 'second identical init must be byte-for-byte idempotent'));
 
   const doctorBefore = snapshot();
   const examined = drydock(['doctor']);
-  assert.match(examined.stdout, /pass\s+config/);
   check(() => assert.match(examined.stdout, /pass\s+config/));
   check(() => assert.match(examined.stdout, /pass\s+workflow gate policy/));
   check(() => assert.match(examined.stdout, /unknown\s+GitHub required check|pass\s+GitHub required check/));
@@ -111,7 +104,6 @@ try {
   );
   const driftBefore = snapshot();
   const drift = drydock(['doctor']);
-  assert.notEqual(drift.status, 0);
   check(() => assert.notEqual(drift.status, 0));
   check(() => assert.match(drift.stdout, /missing\s+workflow gate policy/));
   check(() => assert.deepEqual(snapshot(), driftBefore, 'doctor drift detection must remain read-only'));
@@ -119,7 +111,6 @@ try {
   const invalidRepo = makeRepo('invalid');
   const invalidBefore = snapshot(invalidRepo);
   const invalid = runIn(invalidRepo, ['init', '--yes', '--gates', 'review,Review']);
-  assert.notEqual(invalid.status, 0);
   check(() => assert.notEqual(invalid.status, 0));
   check(() => assert.deepEqual(snapshot(invalidRepo), invalidBefore, 'invalid options must fail before the first write'));
 
@@ -139,7 +130,6 @@ try {
   fs.writeFileSync(path.join(invalidRepo, 'drydock.config.json'), '{ invalid json');
   const malformedBefore = snapshot(invalidRepo);
   const malformed = runIn(invalidRepo, ['init', '--yes', '--force']);
-  assert.notEqual(malformed.status, 0);
   check(() => assert.notEqual(malformed.status, 0));
   check(() => assert.deepEqual(snapshot(invalidRepo), malformedBefore, 'malformed config must remain unchanged even with --force'));
 
@@ -153,7 +143,6 @@ try {
   const workflowBefore = fs.readFileSync(workflowPath);
   const tasksBefore = fs.readFileSync(tasksPath);
   const conflicted = runIn(conflictRepo, ['init', '--yes', '--vscode']);
-  assert.notEqual(conflicted.status, 0, 'reported collisions must make init nonzero');
   check(() => assert.notEqual(conflicted.status, 0, 'reported collisions must make init nonzero'));
   check(() => assert.match(conflicted.stdout + conflicted.stderr, /conflict\s+\.github\/workflows\/drydock-gates\.yml/));
   check(() => assert.match(conflicted.stdout + conflicted.stderr, /conflict\s+\.vscode\/tasks\.json/));
