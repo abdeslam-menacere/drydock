@@ -1,0 +1,17 @@
+{
+  "$schema": "https://drydock.dev/schema/v1.json",
+  "version": 1,
+  "docksDir": ".docks",
+  "branchPattern": "feat/{issue}-{slug}",
+  "baseBranch": "main",
+  "gates": [
+    "review",
+    "qa"
+  ],
+  "editor": null,
+  "agent": "copilot",
+  "bmad": {
+    "enabled": true,
+    "module": "drydock"
+  }
+}

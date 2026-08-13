@@ -6,3 +6,4 @@ node_modules/
 
 # Local tooling
 .claude/settings.local.json
+.docks/
