@@ -5,6 +5,7 @@ import { log, die } from '../lib/log.js';
 import { tryRun, has } from '../lib/sh.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
+import * as notify from '../notify.js';
 import { runInterview } from './config.js';
 
 export default async function start(args) {
@@ -71,6 +72,8 @@ export default async function start(args) {
   };
   writeDock(dock, root);
 
+  notify.lifecycle(cfg, issue, dockOpenedComment(dock, root), root);
+
   // --- Optional editor window. Headless if editor is null. ---
   if (cfg.editor && has(cfg.editor)) {
     tryRun(cfg.editor, [dockDir]);
@@ -80,6 +83,18 @@ export default async function start(args) {
   log.head(`Dock #${issue} is open`);
   log.dim(`cd ${dockDir}`);
   log.dim(`then: drydock gate ${issue} review --pass   (after principal review)`);
+}
+
+function dockOpenedComment(dock, root) {
+  return [
+    '### Drydock: dock opened',
+    '',
+    `- **Branch:** \`${dock.branch}\` (from \`${dock.base}\`)`,
+    `- **Worktree:** \`${path.relative(root, dock.worktree)}\``,
+    `- **Agent:** \`${dock.agent}\``,
+    '',
+    `<sub>One issue, one branch, one worktree. Nothing opens a PR until every gate passes against the commit it reviewed.</sub>`,
+  ].join('\n');
 }
 
 /**
