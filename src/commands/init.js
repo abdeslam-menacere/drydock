@@ -1,16 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULTS, saveConfig, configPath, repoRoot, stateDir } from '../lib/config.js';
+import { DEFAULTS, loadConfig, saveConfig, configPath, repoRoot, stateDir } from '../lib/config.js';
 import { log } from '../lib/log.js';
 import { has, runLive } from '../lib/sh.js';
 import * as gh from '../lib/gh.js';
+import { runInterview } from './config.js';
 
-const GITIGNORE_BLOCK = `
-# Drydock
-.drydock/tmp/
-`;
+// Docks live in-repo so workspace-scoped agents can read them; they are build
+// artefacts, not source, so they stay out of git.
+const GITIGNORE_LINES = ['.drydock/tmp/', '.docks/'];
 
-export default function init(args) {
+export default async function init(args) {
   const root = repoRoot();
   const force = args.includes('--force');
   const withBmad = !args.includes('--no-bmad');
@@ -33,12 +33,9 @@ export default function init(args) {
   log.ok('Created .drydock/docks/');
 
   // 3. gitignore
-  const gi = path.join(root, '.gitignore');
-  const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
-  if (!cur.includes('# Drydock')) {
-    fs.appendFileSync(gi, GITIGNORE_BLOCK);
-    log.ok('Updated .gitignore');
-  }
+  const added = ensureGitignore(root);
+  if (added.length) log.ok(`Updated .gitignore (${added.join(', ')})`);
+  else log.ok('.gitignore already covers Drydock');
 
   // 4. Preflight
   log.head('Preflight');
@@ -47,7 +44,10 @@ export default function init(args) {
   if (has('gh')) check('gh authenticated', gh.authOk(), 'run: gh auth login');
   check('code (VS Code CLI)', has('code'), 'optional — set "editor": null in config for headless');
 
-  // 5. BMAD
+  // 5. The backstop that makes autonomy safe
+  mergeGate(root, loadConfig(root));
+
+  // 6. BMAD
   if (withBmad) {
     log.head('BMAD module');
     log.info('Drydock installs as a BMAD custom module (agents + workflows).');
@@ -60,10 +60,60 @@ export default function init(args) {
     log.dim('Drydock never forks BMAD. Upgrades stay clean.');
   }
 
+  // 7. Ask how much Drydock should do on its own. Skipped when non-interactive.
+  await runInterview(root);
+
   log.head('Next');
   log.raw('  drydock start <issue-number>    # open a dock for a GitHub issue');
   log.raw('  drydock status                 # see every dock in flight');
   log.raw('');
+}
+
+/** Append only the ignore lines that are missing. Safe to run repeatedly. */
+function ensureGitignore(root) {
+  const gi = path.join(root, '.gitignore');
+  const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
+  const have = new Set(cur.split(/\r?\n/).map((l) => l.trim()));
+  const missing = GITIGNORE_LINES.filter((l) => !have.has(l));
+  if (!missing.length) return [];
+
+  let out = '';
+  if (cur && !cur.endsWith('\n')) out += '\n';
+  if (!have.has('# Drydock')) out += `${cur ? '\n' : ''}# Drydock\n`;
+  out += missing.join('\n') + '\n';
+  fs.appendFileSync(gi, out);
+  return missing;
+}
+
+/**
+ * Auto-merge with no required status check merges the moment the PR opens —
+ * which would make the gates decorative. Say so loudly if it is not set up.
+ */
+function mergeGate(root, cfg) {
+  log.head('Merge gate');
+
+  if (!gh.available()) {
+    log.warn('gh not found — cannot verify branch protection.');
+    log.dim(`Check by hand: auto-merge enabled, and \`drydock-gates\` REQUIRED on ${cfg.baseBranch}.`);
+    log.dim('Auto-merge without a required check merges immediately and unverified.');
+    return;
+  }
+
+  const auto = gh.autoMergeEnabled(root);
+  if (auto === null) log.warn('Could not read repository settings (auth, or no GitHub remote).');
+  else if (auto) log.ok('Auto-merge is enabled on the repository');
+  else { log.err('Auto-merge is NOT enabled'); log.dim('Settings → General → Allow auto-merge'); }
+
+  const checks = gh.requiredChecks(cfg.baseBranch, root);
+  if (checks === null) {
+    log.err(`No readable branch protection on ${cfg.baseBranch}`);
+    log.dim('Make `drydock-gates` a required status check before enabling auto-merge.');
+  } else if (checks.includes('drydock-gates')) {
+    log.ok('`drydock-gates` is a required status check');
+  } else {
+    log.err(`\`drydock-gates\` is NOT required on ${cfg.baseBranch}`);
+    log.dim('Without it, auto-merge lands unverified work the instant a PR opens.');
+  }
 }
 
 function check(label, ok, hint) {
