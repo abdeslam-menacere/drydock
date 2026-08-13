@@ -49,6 +49,10 @@ export default async function start(args) {
   log.ok(`Branch:   ${branch}`);
 
   // --- Brief the agent. This file is the dock's only context. ---
+  // The brief is scaffolding, not source. Git reports untracked files as dirty,
+  // so without an exclude entry every dock is permanently dirty and `land`
+  // refuses to run — and a stray `git add -A` drags DOCK.md into the PR diff.
+  excludeDockBrief(dockDir);
   const brief = renderBrief(meta, cfg, branch);
   fs.writeFileSync(path.join(dockDir, 'DOCK.md'), brief);
   log.ok('Wrote DOCK.md (the agent brief for this dock)');
@@ -76,6 +80,26 @@ export default async function start(args) {
   log.head(`Dock #${issue} is open`);
   log.dim(`cd ${dockDir}`);
   log.dim(`then: drydock gate ${issue} review --pass   (after principal review)`);
+}
+
+/**
+ * Keep DOCK.md out of git without asking the user to do anything.
+ *
+ * Linked worktrees share `info/exclude` through the common git dir — a
+ * per-worktree `.git/worktrees/<name>/info/exclude` is written but never read,
+ * verified experimentally — so one anchored entry covers every dock and
+ * rewriting it on each `start` is a no-op. The repo's tracked `.gitignore`
+ * cannot do this job: the dock branch is cut from `origin/<base>`, which would
+ * not carry an uncommitted ignore rule.
+ */
+function excludeDockBrief(dockDir) {
+  const file = path.join(git.commonDir(dockDir), 'info', 'exclude');
+  const cur = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const have = new Set(cur.split(/\r?\n/).map((l) => l.trim()));
+  if (have.has('/DOCK.md') || have.has('DOCK.md')) return;
+
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${cur && !cur.endsWith('\n') ? '\n' : ''}# Drydock dock brief — scaffolding, never committed\n/DOCK.md\n`);
 }
 
 function renderBrief(meta, cfg, branch) {
