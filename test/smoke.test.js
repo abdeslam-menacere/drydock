@@ -65,15 +65,16 @@ fs.writeFileSync(path.join(repo, 'README.md'), '# scratch\n');
 git(['add', '-A']); git(['commit', '-qm', 'init']);
 
 console.log('\ninit');
-ok('exits 0', dd(['init']).status === 0);
+ok('exits 0', dd(['init', '--yes']).status === 0);
 ok('writes config', fs.existsSync(cfgFile));
 ok('creates state dir', fs.existsSync(path.join(repo, '.drydock', 'docks')));
 ok('ignores .docks/', /^\.docks\/$/m.test(gitignore()));
-dd(['init', '--force']);
+dd(['init', '--yes', '--force']);
 ok('re-running init does not duplicate the ignore entry',
   gitignore().split(/\r?\n/).filter((l) => l.trim() === '.docks/').length === 1, gitignore());
 
 console.log('\nconfig');
+dd(['config', 'reset', '--all']);
 // The wizard must never block: every command here runs with a piped stdin, the
 // same as CI and any agent shelling out. A prompt would hang this suite forever.
 const wizard = dd(['config']);
@@ -148,7 +149,7 @@ ok('customise reaches the detail questions', reopened.asked.includes('Autonomy l
 ok('blank answers keep the preset value', readCfg().autonomy.level === 'full');
 ok('start is not blocked once configured', readCfg().setup.completed === true);
 
-dd(['init', '--force']);
+dd(['init', '--yes', '--force']);
 
 console.log('\nstart');
 const s = dd(['start', '412']);
@@ -161,7 +162,7 @@ ok('gates start unset', Object.values(dock.gates).every((g) => g === null));
 ok('dock lives inside the repo', dock.worktree.startsWith(repo + path.sep));
 ok('dock lives under .docks', path.relative(repo, dock.worktree).split(path.sep)[0] === '.docks');
 ok('git ignores the docks directory', !git(['status', '--porcelain']).includes('.docks'));
-ok('start warns that setup is pending', (s.stdout + s.stderr).includes('drydock config'));
+ok('start does not warn once setup is complete', !(s.stdout + s.stderr).includes('drydock config'));
 
 // The brief is scaffolding. If git sees it, every dock is born dirty and `land`
 // refuses forever — the exact bug that blocked the first live autonomous run.

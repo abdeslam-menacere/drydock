@@ -32,7 +32,7 @@ jobs:
             // The marker is plain bold text because the GitHub MCP server strips
             // HTML comments from PR bodies. The legacy comment is still accepted
             // so an older CLI checked out against this workflow keeps working.
-            const REQUIRED_GATES = ["review","qa"];
+            const REQUIRED_GATES = {{GATES_JSON}};
             const RECEIPT_MARKER = /^[ \t]*(?:\*\*drydock-receipt:v1\*\*|<!--[ \t]*drydock-receipt:v1[ \t]*-->)[ \t]*\r?$/m;
             const ROW_RE = /^\|\s*([a-z0-9-]+)\s*\|\s*✅\s*pass\s*\|\s*`([0-9a-f]{7,40})`/gim;
 

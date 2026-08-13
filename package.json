@@ -5,11 +5,11 @@
   "type": "module",
   "bin": { "drydock": "bin/drydock.js" },
   "engines": { "node": ">=20.12" },
-  "files": ["bin", "src", "skills", "bmad-module", "plugin.json", "README.md", "LICENSE"],
+  "files": ["bin", "src", "templates", "skills", "bmad-module", "plugin.json", "README.md", "LICENSE"],
   "repository": { "type": "git", "url": "git+https://github.com/abmenace_microsoft/drydock.git" },
   "homepage": "https://github.com/abmenace_microsoft/drydock#readme",
   "scripts": {
-    "test": "node test/smoke.test.js",
+    "test": "node test/smoke.test.js && node test/init-doctor.test.js",
     "drydock": "node bin/drydock.js"
   },
   "keywords": [

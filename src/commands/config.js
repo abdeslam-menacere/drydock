@@ -36,6 +36,17 @@ export default async function config(args) {
  */
 export async function runInterview(root = repoRoot(), { all = false, io = null } = {}) {
   const cfg = loadConfig(root);
+  const next = await collectPolicy(cfg, { all, io });
+  if (next === cfg) return cfg;
+  saveConfig(next, root);
+
+  log.ok('Saved to drydock.config.json');
+  summarise(next);
+  return next;
+}
+
+/** Collect the existing policy interview into memory without writing a file. */
+export async function collectPolicy(cfg, { all = false, io = null } = {}) {
   const pending = all ? QUESTIONS : pendingQuestions(cfg);
 
   if (!pending.length) {
@@ -78,10 +89,6 @@ export async function runInterview(root = repoRoot(), { all = false, io = null }
   const next = deepMerge(cfg, {});
   for (const [key, value] of Object.entries(answers)) setPath(next, key, value);
   next.setup = { completed: true, at: new Date().toISOString(), schemaVersion: SCHEMA_VERSION };
-  saveConfig(next, root);
-
-  log.ok('Saved to drydock.config.json');
-  summarise(next);
   return next;
 }
 

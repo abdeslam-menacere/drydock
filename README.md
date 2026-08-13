@@ -2,10 +2,8 @@
 
 **Every feature gets its own dock. Nothing ships unreviewed.**
 
-A GitHub **repository template** that bootstraps a project where every issue gets
-its own branch, its own git worktree, and its own AI agent session — and where a
-pull request cannot open until review and QA have both passed **against the
-current commit**.
+A dependency-free CLI and GitHub **repository template** for adding isolated
+worktrees and SHA-bound review gates to new or existing repositories.
 
 Built for [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli)
 and VS Code. Works with any agent that reads instruction files.
@@ -15,7 +13,24 @@ and VS Code. Works with any agent that reads instruction files.
 > the issue that delivers it. Everything unmarked works today. The full list is
 > in [Honest status](#honest-status).
 
-Use the template, clone it, open VS Code, and say:
+Install into an existing repository from npm:
+
+```bash
+npx --yes drydock@latest init
+npx --yes drydock@latest doctor
+```
+
+Before npm publication, or when pinning a tagged GitHub release:
+
+```bash
+npx --yes --package github:abmenace_microsoft/drydock#<tag> drydock init \
+  --cli-spec github:abmenace_microsoft/drydock#<tag>
+```
+
+`init` never adds a dependency or lockfile. It stores the exact safe package
+spec and generated VS Code tasks invoke that pinned spec through `npx`.
+
+Then say:
 
 ```
 /drydock 412
@@ -44,30 +59,59 @@ How much runs unattended is a question you answer once, on first run. Full
 autopilot, trust-but-verify, or fully manual are the same code path with
 different config — see [`SPEC.md` §10](SPEC.md).
 
-**Not shipped yet — #2.** There is no first-run wizard and no `drydock config`;
-today every command runs the manual path.
-
 **[→ Getting started](docs/GETTING-STARTED.md)** — empty repo to gated PR in fifteen minutes.
 
 ---
 
 ## Start here
 
-Click **Use this template → Create a new repository**, then:
+For a greenfield repository, click **Use this template → Create a new
+repository**, clone it, and run:
 
 ```bash
 gh repo clone <you>/<your-new-repo>
 cd <your-new-repo>
-node bin/drydock.js init
+node bin/drydock.js init --yes
 code .
 ```
+
+For an existing repository, preview every operation before writing:
+
+```bash
+npx --yes drydock@latest init --yes --dry-run
+npx --yes drydock@latest init --yes
+```
+
+The unattended profile installs core state plus GitHub enforcement. VS Code and
+BMAD are opt-in with `--vscode` and `--bmad`. In a human terminal, omit `--yes`
+to answer the existing policy interview, preview the full plan, and confirm once.
+Piped/non-TTY setup without `--yes` refuses before writing.
 
 Then `drydock start <issue>` and work the loop by hand — see
 [Getting started](docs/GETTING-STARTED.md).
 
-**Not shipped yet — #5, #2.** `/drydock <issue>` in Copilot Chat (#5), and a
-first-run interview that writes your autonomy preference to
-`drydock.config.json` and never asks again (#2).
+**Not shipped yet — #5.** `/drydock <issue>` in Copilot Chat arrives with the
+orchestrator contract in #5.
+
+### Safe reruns and conflicts
+
+Every operation is previewed as `create`, `append`, `merge`, `present`, `skip`,
+or `conflict`. Preview and execution consume the same plan. Rerunning the same
+command is byte-for-byte idempotent.
+
+- Existing `drydock.config.json` is parsed, validated, and reused. Even
+  `--force` never overwrites it.
+- Generic marker blocks may be appended to `.gitignore` and existing Copilot
+  instructions. Dedicated Drydock assets are create-only.
+- VS Code files are merged only when they are strict JSON with the expected
+  schema and no Drydock label/input collision. JSONC and malformed files are
+  left unchanged with manual guidance.
+- Pull-request templates and `.vscode/settings.json` are never touched.
+
+Run `drydock doctor` after setup. It reports `pass`, `missing`, or `unknown` for
+local assets, workflow/config gate agreement, tools, authentication, and the
+required GitHub status check. Lack of GitHub permission is `unknown`, with the
+manual Settings path, not a false failure.
 
 You get, wired together and ready:
 
@@ -94,9 +138,10 @@ With `drydock-gates` set as a **required** status check, an unverified PR cannot
 merge. Without it, auto-merge merges immediately and unverified — which is
 strictly worse than doing nothing. Set it yourself and check it yourself.
 
-**Not shipped yet — #2, #3.** `init` preflights git, `gh`, and `code` only; it
-does not inspect branch protection (#2). `drydock land` does not arm auto-merge,
-so nothing in Drydock can merge a pull request for you today (#3).
+`doctor` inspects branch protection and repository rulesets when authenticated
+permissions allow it. It never changes repository settings. `drydock land`
+does not arm auto-merge yet (#3), so nothing in Drydock can merge a pull request
+for you today.
 
 Install the skills into Copilot CLI globally:
 
@@ -228,9 +273,8 @@ ordering, SHA binding, staleness detection, `land` opening a real PR with a
 receipt, and the CI receipt check rejecting stale receipts, missing receipts,
 copied receipts, and partial gates.
 
-**The whole CLI surface that exists today** is `init`, `start`, `status`,
-`gate`, `land`, and `clean`. Any other command in this repo's documentation is
-marked **Not shipped yet — #N**.
+**The CLI surface that exists today** is `init`, `config`, `doctor`, `start`,
+`status`, `gate`, `land`, and `clean`.
 
 ### Documented but not shipped yet
 
@@ -240,7 +284,6 @@ decision is final; the code is not all written. Nothing below works today:
 
 | Marked | What it is | Ships in |
 |---|---|---|
-| `drydock config`, the first-run interview, `init` checking branch protection | Autonomy level as configuration | **#2** |
 | `drydock gate --as <actor>`, `drydock land` arming auto-merge | Verdict attribution as a flag; unattended merge | **#3** |
 | The `## Operating policy` block in a generated `DOCK.md` | Policy rendered where the agent will read it | **#4** |
 | `/drydock <issue>`, `.github/prompts/drydock.prompt.md`, `.github/agents/drydock-orchestrator.md` | The orchestrator and its trigger | **#5** |
@@ -266,8 +309,8 @@ Two consequences worth stating outright:
   everything merges instantly, unverified.
 - Automatic conflict arbitration between concurrent docks is the next milestone
   and is not built yet.
-- Not published to npm. The CLI ships in the template; use `npm link` or
-  `node bin/drydock.js`.
+- npm publication is a release operation outside this repository change. Until
+  publication, use the tagged GitHub package-spec command shown above.
 
 ## License
 

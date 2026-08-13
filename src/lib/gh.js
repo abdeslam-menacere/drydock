@@ -31,6 +31,11 @@ export function repoNameWithOwner(cwd) {
   return r.ok ? r.out : null;
 }
 
+/** Run one read-only GitHub API request and return the raw command result. */
+export function api(endpoint, cwd) {
+  return tryRun('gh', ['api', endpoint], { cwd });
+}
+
 /** Does the repo allow auto-merge? null when it cannot be determined. */
 export function autoMergeEnabled(cwd) {
   const r = tryRun('gh', ['repo', 'view', '--json', 'autoMergeAllowed', '-q', '.autoMergeAllowed'], { cwd });

@@ -9,21 +9,33 @@ Mark the repo **Settings → Template repository**. A colleague clicks **Use thi
 Then in their new repo:
 
 ```bash
-drydock init
+node bin/drydock.js init --yes
+node bin/drydock.js doctor
 ```
 
 Best for: greenfield projects, first internal pilots. Lowest friction, zero install.
 
 ### Path B — CLI into an existing repo
 
-Drydock is not on npm yet, so today this means vendoring the CLI or linking it
-from a clone:
+Drydock installs without becoming a project dependency:
 
 ```bash
-git clone https://github.com/<your-org>/drydock && (cd drydock && npm link)
 cd existing-service
-drydock init
+npx --yes drydock@latest init --yes --dry-run
+npx --yes drydock@latest init --yes
+npx --yes drydock@latest doctor
 ```
+
+Before npm publication, pin the approved GitHub release:
+
+```bash
+npx --yes --package github:abmenace_microsoft/drydock#<tag> drydock init \
+	--cli-spec github:abmenace_microsoft/drydock#<tag>
+```
+
+The exact spec is persisted and generated VS Code tasks use it. No package
+dependency, lockfile, global install, repository setting, Copilot plugin, or
+BMAD module is installed automatically.
 
 The skills can be installed into Copilot CLI independently of the CLI itself:
 
@@ -31,7 +43,21 @@ The skills can be installed into Copilot CLI independently of the CLI itself:
 copilot plugin install <your-org>/drydock
 ```
 
-Best for: the 95% of real work that happens in repos that already exist. **This is the path that actually determines adoption** — nobody starts a new repo to try a tool. Publishing to npm is what makes it one line, and it is the single highest-leverage thing you can do for adoption.
+Best for: the 95% of real work that happens in repos that already exist. npm is
+the canonical published source; tagged GitHub package specs are the controlled
+pre-release and fallback source.
+
+### Enterprise rollout controls
+
+- Standardize one exact `--cli-spec`, gate list, base branch, and optional-asset
+	profile in automation. Use `--dry-run` in change review.
+- Treat `conflict` as a manual integration decision. Reruns never overwrite a
+	project-owned file, including malformed config and JSONC VS Code files.
+- Require `drydock doctor` in rollout evidence. `unknown` GitHub enforcement
+	means an authorized maintainer must verify the Settings rule manually.
+- Rollback through version control: remove created files, remove the two marked
+	append blocks, and revert strict-JSON merges. There is no package or
+	server-side state for Drydock to uninstall.
 
 Ship both. Lead with A in the demo, invest in B.
 

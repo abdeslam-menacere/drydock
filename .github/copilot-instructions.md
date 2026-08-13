@@ -1,5 +1,7 @@
 # Copilot instructions — this repository
 
+<!-- drydock:start -->
+
 This project uses **Drydock**: every GitHub issue gets its own branch, its own
 git worktree, and its own agent session, and nothing opens a pull request until
 review and QA have both passed against the current commit.
@@ -75,6 +77,8 @@ human watching the loop, the comment trail is the only oversight there is.
 Then stop and hand off to the review gate. Whether that gate is run by a human
 or by a reviewer agent is set by this repo's configuration; either way it is not
 you, and you do not run it against your own work.
+
+<!-- drydock:end -->
 
 ## This repo's own constraints
 

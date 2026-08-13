@@ -12,7 +12,8 @@ This page is the condensed reference.
 
 ```bash
 cd your-repo
-drydock init
+npx --yes drydock@latest init
+npx --yes drydock@latest doctor
 ```
 
 Then, on GitHub → Settings → Branches → add a rule for `main`:
@@ -28,10 +29,6 @@ immediately and unverified.
 The first run also asks how much of the loop you want unattended — full
 autopilot, trust-but-verify, or fully manual. It asks once and writes the answer
 to `drydock.config.json`. `drydock config` reopens it.
-
-**Not shipped yet — #2.** There is no interview and no `config` command;
-`drydock config` exits with `Unknown command: config`. Until #2 lands, every
-run is the manual path below.
 
 ## Per feature
 

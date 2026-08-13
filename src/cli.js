@@ -5,9 +5,9 @@ import gate from './commands/gate.js';
 import land from './commands/land.js';
 import status from './commands/status.js';
 import clean from './commands/clean.js';
+import doctor from './commands/doctor.js';
 import { log } from './lib/log.js';
-
-const VERSION = '0.1.0';
+import { PACKAGE_VERSION } from './lib/package.js';
 
 const COMMANDS = {
   init:   [init,   'Scaffold Drydock in the current repo'],
@@ -17,20 +17,20 @@ const COMMANDS = {
   gate:   [gate,   'Record a gate verdict, bound to the current commit'],
   land:   [land,   'Verify gates, push, and open the pull request'],
   clean:  [clean,  'Remove a dock: worktree, branch, manifest'],
+  doctor: [doctor, 'Verify local setup, tooling, and GitHub enforcement'],
 };
 
-export function main(argv) {
+export async function main(argv) {
   const [cmd, ...args] = argv;
 
   if (!cmd || cmd === '-h' || cmd === '--help' || cmd === 'help') return help();
-  if (cmd === '-v' || cmd === '--version') return console.log(VERSION);
+  if (cmd === '-v' || cmd === '--version') return console.log(PACKAGE_VERSION);
 
   const entry = COMMANDS[cmd];
   if (!entry) { log.err(`Unknown command: ${cmd}`); return help(1); }
 
   try {
-    const result = entry[0](args);
-    if (result && typeof result.then === 'function') result.catch(fail);
+    await entry[0](args);
   } catch (e) {
     fail(e);
   }
@@ -44,7 +44,7 @@ function fail(e) {
 
 function help(code = 0) {
   console.log(`
-Drydock ${VERSION} — every feature gets its own dock. Nothing ships unreviewed.
+Drydock ${PACKAGE_VERSION} — every feature gets its own dock. Nothing ships unreviewed.
 
 Usage: drydock <command> [options]
 

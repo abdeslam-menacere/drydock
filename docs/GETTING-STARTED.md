@@ -27,19 +27,63 @@ node --version && git --version && gh auth status && copilot --version
 
 ---
 
-## 1. Create your project
+## 1. Install into a repository
+
+### Existing repository
+
+From the repository root, preview and install the recommended unattended
+profile:
+
+```bash
+npx --yes drydock@latest init --yes --dry-run
+npx --yes drydock@latest init --yes
+npx --yes drydock@latest doctor
+```
+
+The tagged GitHub fallback is:
+
+```bash
+npx --yes --package github:abmenace_microsoft/drydock#<tag> drydock init \
+  --cli-spec github:abmenace_microsoft/drydock#<tag>
+```
+
+Neither path changes `package.json`, creates a lockfile, or requires a global
+install. `--yes` selects core state plus GitHub enforcement. Add `--vscode` or
+`--bmad` for optional integrations. To set repository defaults explicitly:
+
+```bash
+npx --yes drydock@latest init --yes \
+  --base-branch main \
+  --docks-dir .docks \
+  --branch-pattern "feat/{issue}-{slug}" \
+  --gates review,qa \
+  --editor code \
+  --agent copilot \
+  --github-assets true \
+  --vscode-assets false \
+  --bmad-integration false \
+  --cli-spec drydock@0.1.0
+```
+
+Omit `--yes` in a human terminal to answer the same policy interview used by
+`drydock config`, preview every file operation, and confirm once. A non-TTY
+invocation without `--yes` refuses without writing.
+
+### Greenfield template
 
 Click **Use this template → Create a new repository** on GitHub, then:
 
 ```bash
 gh repo clone <you>/<your-new-repo>
 cd <your-new-repo>
-node bin/drydock.js init
+node bin/drydock.js init --yes
 code .
 ```
 
-`init` writes `drydock.config.json`, creates `.drydock/docks/`, updates
-`.gitignore`, and runs a preflight check telling you what's missing.
+`init` creates core state, appends marker-delimited generic blocks when safe,
+and creates selected dedicated assets only when absent. The same plan powers
+preview and execution. On rerun, identical files are `present`; project-owned
+collisions remain unchanged and are reported as `conflict`.
 
 That is the whole setup. From here on the loop is one line in Copilot Chat:
 
@@ -51,10 +95,9 @@ The first time you run it, Drydock asks how you want the loop to behave — full
 autopilot, trust-but-verify, or fully manual — writes your answer to
 `drydock.config.json`, and never asks again. `drydock config` reopens it.
 
-**Not shipped yet — #5, #2.** `/drydock` has no prompt file behind it yet (#5),
-and there is no interview and no `config` command — `drydock config` exits with
-`Unknown command: config` (#2). Skip to [step 4](#4-open-a-dock) and run the
-loop by hand; the gates, the receipt, and the CI check are all real today.
+**Not shipped yet — #5.** `/drydock` has no orchestrator prompt behind it yet.
+Skip to [step 4](#4-open-a-dock) and run the loop by hand; the gates, receipt,
+and CI check are real today.
 
 Make the CLI available as `drydock` (optional, but every example reads better):
 
@@ -89,9 +132,10 @@ merging. Without one there is nothing to wait for, so the pull request merges
 the moment it opens — unverified, and strictly worse than no automation at all.
 The unattended loop has no human backstop; this rule is the backstop.
 
-**Not shipped yet — #3, #2.** `drydock land` does not arm auto-merge (#3), and
-`init` does not inspect your branch protection settings — its preflight covers
-git, `gh`, and `code` only (#2). Set the rule yourself and verify it yourself.
+`drydock doctor` reads branch protection and rulesets when `gh` authentication
+and permissions allow it. An unverifiable rule is `unknown` with the exact
+manual Settings path. It never mutates GitHub. `drydock land` does not arm
+auto-merge yet (#3).
 
 ---
 
@@ -347,6 +391,21 @@ autonomy level, not per issue.
 ---
 
 ## Troubleshooting
+
+**`init` reports `conflict`** — the project-owned file was left byte-for-byte
+unchanged. Dedicated Drydock files are create-only. JSONC, malformed VS Code
+files, and Drydock task/input identifier collisions require a manual merge.
+
+**Rollback** — before committing, remove files reported as `create`, remove the
+marker-delimited Drydock blocks from `.gitignore` and Copilot instructions, and
+restore JSON files reported as `merge` from version control. Drydock does not
+touch package metadata or repository settings, so there is no dependency or
+server-side uninstall step.
+
+**`doctor` reports `unknown GitHub required check`** — authentication or
+permissions were insufficient to inspect every rule. In GitHub, open **Settings
+→ Rules → Rulesets** (or **Settings → Branches**) for the configured base branch
+and require **Drydock Gates / Verify gate receipt**.
 
 **`No drydock.config.json found`** — you are outside the repo entirely. Inside a
 dock worktree is fine; Drydock resolves state to the main repo.

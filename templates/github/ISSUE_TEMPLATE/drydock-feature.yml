@@ -1,0 +1,39 @@
+name: Feature (Drydock)
+description: One issue = one dock = one branch = one agent. Scope it accordingly.
+labels: ["drydock"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue becomes a **dock**: its own branch, its own worktree, its own AI developer.
+        If it needs more than one dock, split it into more than one issue.
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is true after this ships that is not true now? One paragraph.
+    validations: { required: true }
+
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: The QA gate is scored directly against this list. Be specific and testable.
+      value: |
+        - [ ] 
+        - [ ] 
+    validations: { required: true }
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Explicitly out of scope
+      description: The single highest-leverage field here. Naming what NOT to do is how you stop scope creep.
+    validations: { required: true }
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context the agent cannot infer
+      description: Files, prior decisions, gotchas. The agent starts with no memory of your project's history.

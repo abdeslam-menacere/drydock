@@ -104,12 +104,35 @@ Committing manifests is deliberate: gate history becomes reviewable, blameable, 
 
 | Command | Effect |
 |---|---|
-| `init` | Write config, state dir, gitignore; run preflight; print BMAD wiring |
+| `init [--yes] [--dry-run] [setup flags]` | Validate, preview, and conflict-safely scaffold Drydock into the current repository |
+| `config` | Reopen or inspect the persisted autonomy policy interview |
+| `doctor` | Read-only verification of config, selected assets, tools, gate-policy agreement, and GitHub enforcement |
 | `start <issue>` | Fetch issue via `gh`, create branch + worktree, write `DOCK.md`, open editor |
 | `status` | Table of docks with per-gate state, including stale detection |
 | `gate <issue> <name> --pass\|--fail [--note]` | Record a SHA-bound verdict; enforce ordering |
 | `land <issue> [--dry-run]` | Verify all gates fresh → push → open PR with receipt |
 | `clean <issue> \| --merged` | Remove worktree, branch, manifest |
+
+### 6.1 Adoption contract
+
+`init` resolves all options and validates the complete config before the first
+write. Human terminals reuse the configuration interview and confirm once after
+the preview. Non-TTY invocations require `--yes`; `--dry-run` executes the same
+planner and writes nothing.
+
+The planner classifies every operation as `create`, `append`, `merge`,
+`present`, `skip`, or `conflict`. Execution consumes that exact plan. Existing
+config is immutable during init and is always parsed, validated, and reused.
+Dedicated GitHub assets are create-only. Generic instruction and ignore blocks
+are marker-delimited. VS Code files merge only as strict JSON with known schema
+and no Drydock identifier collision. Pull-request templates and repository
+settings are outside the installer boundary.
+
+Generated gate workflows embed the configured ordered gate list as literals;
+they do not load policy from PR-controlled config. `doctor` compares those
+literals with config and reports drift. GitHub protection/ruleset inspection is
+best effort and read-only: insufficient permission is `unknown`, never a false
+pass or failure.
 
 ## 7. `DOCK.md` — the context boundary
 

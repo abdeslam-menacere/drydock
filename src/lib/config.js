@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { run, tryRun } from './sh.js';
 import { die } from './log.js';
+import { DEFAULT_CLI_SPEC } from './package.js';
 import { QUESTIONS } from './questions.js';
 
 export const CONFIG_FILE = 'drydock.config.json';
@@ -22,8 +23,12 @@ export const DEFAULTS = {
   editor: 'code',
   // Which agent CLI to hand the dock to. Informational in v1.
   agent: 'copilot',
+  installation: {
+    cliSpec: DEFAULT_CLI_SPEC,
+    assets: { github: true, vscode: false, bmad: false },
+  },
   bmad: {
-    enabled: true,
+    enabled: false,
     module: 'drydock',
   },
 
