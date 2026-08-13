@@ -10,11 +10,19 @@ current commit**.
 Built for [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli)
 and VS Code. Works with any agent that reads instruction files.
 
+> **How to read this document.** Drydock is `v0.1.0`. Anything marked
+> **Not shipped yet — #N** is a decided behaviour that has not landed; `#N` is
+> the issue that delivers it. Everything unmarked works today. The full list is
+> in [Honest status](#honest-status).
+
 Use the template, clone it, open VS Code, and say:
 
 ```
 /drydock 412
 ```
+
+**Not shipped yet — #5.** No `.github/prompts/drydock.prompt.md` exists, so
+`/drydock` does not resolve and there is no orchestrator contract behind it.
 
 Issue #412 gets a branch, a worktree, and an agent brief. A developer agent plans
 it, asks you everything it needs in one batch, and implements it. A reviewer
@@ -22,7 +30,7 @@ agent that has never seen the developer's reasoning gates it. QA gates it after
 that. A pull request opens with a receipt binding both verdicts to the exact
 commit. GitHub merges it when CI is green.
 
-Or drive it yourself — same gates, same receipt:
+Drive it yourself — this is the path that works today, same gates, same receipt:
 
 ```bash
 drydock start 412                 # issue #412 → branch, worktree, agent brief
@@ -35,6 +43,9 @@ drydock clean 412                 # worktree and branch removed
 How much runs unattended is a question you answer once, on first run. Full
 autopilot, trust-but-verify, or fully manual are the same code path with
 different config — see [`SPEC.md` §10](SPEC.md).
+
+**Not shipped yet — #2.** There is no first-run wizard and no `drydock config`;
+today every command runs the manual path.
 
 **[→ Getting started](docs/GETTING-STARTED.md)** — empty repo to gated PR in fifteen minutes.
 
@@ -51,8 +62,12 @@ node bin/drydock.js init
 code .
 ```
 
-Then `/drydock <issue>` in Copilot Chat. The first run asks how you want the loop
-to behave, writes the answer to `drydock.config.json`, and never asks again.
+Then `drydock start <issue>` and work the loop by hand — see
+[Getting started](docs/GETTING-STARTED.md).
+
+**Not shipped yet — #5, #2.** `/drydock <issue>` in Copilot Chat (#5), and a
+first-run interview that writes your autonomy preference to
+`drydock.config.json` and never asks again (#2).
 
 You get, wired together and ready:
 
@@ -61,7 +76,7 @@ You get, wired together and ready:
 | `bin/`, `src/` | The CLI. Zero runtime dependencies — Node's standard library and `git`. |
 | `skills/` | Copilot CLI skills: the loop, dock switching, the audit trail, GitHub operation policy |
 | `.github/copilot-instructions.md` | Repo-wide agent rules, picked up automatically |
-| `.github/agents/` | The role contracts — orchestrator, developer, reviewer, QA |
+| `.github/agents/` | The role contracts — developer, reviewer, QA. The orchestrator contract is **not shipped yet — #5** |
 | `.github/workflows/drydock-gates.yml` | Server-side gate enforcement |
 | `.github/ISSUE_TEMPLATE/` | An issue form built around *explicitly out of scope* |
 | `.vscode/` | Tasks for every dock command, plus extension recommendations |
@@ -77,7 +92,11 @@ Auto-merge has one prerequisite, and it is not optional. On GitHub → **Setting
 
 With `drydock-gates` set as a **required** status check, an unverified PR cannot
 merge. Without it, auto-merge merges immediately and unverified — which is
-strictly worse than doing nothing. Setup checks for this and warns you.
+strictly worse than doing nothing. Set it yourself and check it yourself.
+
+**Not shipped yet — #2, #3.** `init` preflights git, `gh`, and `code` only; it
+does not inspect branch protection (#2). `drydock land` does not arm auto-merge,
+so nothing in Drydock can merge a pull request for you today (#3).
 
 Install the skills into Copilot CLI globally:
 
@@ -129,13 +148,21 @@ simply cannot merge.
 **One session per dock.** `copilot --name "dock-412" --add-dir .` keeps each
 issue's context — and each issue's requirements — from bleeding into the next.
 Resume it later by name. Orchestrated, the same isolation comes from spawning
-each agent with fresh context instead.
+each agent with fresh context instead — **not shipped yet — #5.**
 
 **A reviewer that never read the author's summary.** An agent may record a gate
-verdict, attributed `agent:<role>`. That is only worth something because the
-reviewer and QA agents are given the issue text and the diff and nothing else —
-not the developer's account of its own work. A reviewer reading the author's
-explanation is a rubber stamp with extra steps.
+verdict, attributed `agent:<role>`. Today that attribution comes from the
+`DRYDOCK_ACTOR` environment variable, which `drydock gate` stamps into the
+receipt's `By` column:
+
+```bash
+DRYDOCK_ACTOR=agent:drydock-reviewer drydock gate 412 review --pass --note "scope clean"
+```
+
+That is only worth something because the reviewer and QA agents are given the
+issue text and the diff and nothing else — not the developer's account of its
+own work. A reviewer reading the author's explanation is a rubber stamp with
+extra steps.
 
 ## Works with your agent
 
@@ -153,7 +180,7 @@ Four, not seven. A role only exists here if it owns a **gate with a pass/fail ve
 
 | Role | Gate | Question it answers |
 |---|---|---|
-| **Orchestrator** | ordering + isolation | Did the right agent see the right context, and when do we stop? |
+| **Orchestrator** | ordering + isolation | Did the right agent see the right context, and when do we stop? **Not shipped yet — #5** |
 | **Dock Developer** | — | Implements exactly one issue, inside one worktree |
 | **Principal Reviewer** | `review` | Is the scope disciplined and the design sound? |
 | **QA Validator** | `qa` | Are the acceptance criteria actually met, adversarially? |
@@ -200,6 +227,33 @@ Use it without BMAD too; that's the default.
 ordering, SHA binding, staleness detection, `land` opening a real PR with a
 receipt, and the CI receipt check rejecting stale receipts, missing receipts,
 copied receipts, and partial gates.
+
+**The whole CLI surface that exists today** is `init`, `start`, `status`,
+`gate`, `land`, and `clean`. Any other command in this repo's documentation is
+marked **Not shipped yet — #N**.
+
+### Documented but not shipped yet
+
+This documentation describes the autonomy decision recorded in
+[`SPEC.md` §10](SPEC.md), which is being delivered across five issues. The
+decision is final; the code is not all written. Nothing below works today:
+
+| Marked | What it is | Ships in |
+|---|---|---|
+| `drydock config`, the first-run interview, `init` checking branch protection | Autonomy level as configuration | **#2** |
+| `drydock gate --as <actor>`, `drydock land` arming auto-merge | Verdict attribution as a flag; unattended merge | **#3** |
+| The `## Operating policy` block in a generated `DOCK.md` | Policy rendered where the agent will read it | **#4** |
+| `/drydock <issue>`, `.github/prompts/drydock.prompt.md`, `.github/agents/drydock-orchestrator.md` | The orchestrator and its trigger | **#5** |
+
+Two consequences worth stating outright:
+
+- **Attribution works today, but through the environment, not a flag.**
+  `drydock gate` reads `DRYDOCK_ACTOR` and stamps it into the receipt. Passing
+  `--as agent:drydock-reviewer` does nothing — unknown flags are silently
+  ignored, so the verdict would be recorded under your own username. Use
+  `DRYDOCK_ACTOR` until #3 lands.
+- **The unattended loop does not run yet.** Every documented autonomous run is
+  the manual loop with agents doing the typing.
 
 **Known limits, stated plainly:**
 

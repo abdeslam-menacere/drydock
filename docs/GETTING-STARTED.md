@@ -2,6 +2,11 @@
 
 Fifteen minutes, from an empty repo to a gated pull request.
 
+> Anything marked **Not shipped yet — #N** is a decided behaviour that has not
+> landed; `#N` is the issue that delivers it. Everything unmarked works today.
+> The full list is in the README under *Honest status*. Sections 4 through 8
+> below are entirely unmarked — that is the loop you can run right now.
+
 ---
 
 ## 0. What you need
@@ -46,6 +51,11 @@ The first time you run it, Drydock asks how you want the loop to behave — full
 autopilot, trust-but-verify, or fully manual — writes your answer to
 `drydock.config.json`, and never asks again. `drydock config` reopens it.
 
+**Not shipped yet — #5, #2.** `/drydock` has no prompt file behind it yet (#5),
+and there is no interview and no `config` command — `drydock config` exits with
+`Unknown command: config` (#2). Skip to [step 4](#4-open-a-dock) and run the
+loop by hand; the gates, the receipt, and the CI check are all real today.
+
 Make the CLI available as `drydock` (optional, but every example reads better):
 
 ```bash
@@ -79,6 +89,10 @@ merging. Without one there is nothing to wait for, so the pull request merges
 the moment it opens — unverified, and strictly worse than no automation at all.
 The unattended loop has no human backstop; this rule is the backstop.
 
+**Not shipped yet — #3, #2.** `drydock land` does not arm auto-merge (#3), and
+`init` does not inspect your branch protection settings — its preflight covers
+git, `gh`, and `code` only (#2). Set the rule yourself and verify it yourself.
+
 ---
 
 ## 2. Write an issue
@@ -100,6 +114,12 @@ In Copilot Chat, in VS Code, at the repo root:
 /drydock 1
 ```
 
+**Not shipped yet — #5.** This whole section describes the orchestrated loop,
+which has no prompt file and no orchestrator contract yet. It is here because
+the behaviour is decided (`SPEC.md` §10) and because it is what sections 4
+through 8 add up to. To work an issue today, start at
+[step 4](#4-open-a-dock).
+
 The orchestrator fetches the issue, opens the dock, and runs the loop:
 
 1. `drydock start 1` — branch, worktree, and a generated `DOCK.md`.
@@ -110,7 +130,7 @@ The orchestrator fetches the issue, opens the dock, and runs the loop:
 5. A reviewer agent is spawned with the issue text and `git diff` — and nothing
    else. It does not get the developer's summary, so the gate is a review rather
    than a countersignature.
-6. `drydock gate 1 review --as agent:drydock-reviewer`
+6. `drydock gate 1 review --as agent:drydock-reviewer` — `--as` **not shipped yet — #3**
 7. QA the same way → `drydock gate 1 qa --as agent:drydock-qa`
 8. `drydock land 1` — a pull request opens with the gate receipt.
 9. CI verifies the receipt; GitHub merges when it's green.
@@ -215,9 +235,20 @@ drydock gate 1 qa     --pass --note "criteria met, probed edge cases"
 ```
 
 Run the reviewer and QA agents first (`.github/agents/`), then record their
-verdict. An agent recording its own verdict attributes it with
-`--as agent:drydock-reviewer`, so the receipt always shows who decided. **Fail
-freely:**
+verdict. An agent recording its own verdict sets `DRYDOCK_ACTOR`, which
+`drydock gate` stamps into the receipt's `By` column, so the receipt always
+shows who decided:
+
+```bash
+DRYDOCK_ACTOR=agent:drydock-reviewer drydock gate 1 review --pass --note "scope clean"
+```
+
+**Not shipped yet — #3.** A `--as <actor>` flag arrives in #3. Until it does,
+do not pass it: `drydock gate` ignores unknown flags instead of rejecting them,
+so `--as agent:drydock-reviewer` silently files an agent's verdict under your
+name — the one direction of error this system exists to prevent.
+
+**Fail freely:**
 
 ```bash
 drydock gate 1 review --fail --note "touches auth/, unrelated to #1"
@@ -286,7 +317,7 @@ drydock clean --merged   # sweep everything landed
 /drydock 1 2 3
 ```
 
-Or by hand:
+**Not shipped yet — #5.** By hand:
 
 ```bash
 drydock start 1 && drydock start 2 && drydock start 3
@@ -302,7 +333,7 @@ drydock status
 
 One named Copilot session per dock; switch with `copilot --resume "dock-2"`.
 Orchestrated, the isolation comes from spawning each agent with fresh context
-instead, and you stay in one chat.
+instead, and you stay in one chat — **not shipped yet — #5.**
 
 **Practical ceiling is three to five — while you are the one reviewing.** Not
 because the tooling strains, but because reviewing is human and does not
@@ -328,7 +359,8 @@ not change that — an agent that cannot pass its own gates does not merge.
 
 **A pull request merged without CI having run** — auto-merge is on but
 `drydock-gates` is not a **required** status check on the branch. Fix the branch
-protection rule; see step 1.
+protection rule; see step 1. Drydock cannot have armed auto-merge itself — that
+is **not shipped yet — #3** — so this is a repository setting.
 
 **CI fails with `No Drydock gate receipt in this PR`** — the PR was opened by
 hand. Close it and use `drydock land`.

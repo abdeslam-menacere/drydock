@@ -7,7 +7,9 @@ review and QA have both passed against the current commit.
 Read this before doing anything. If you are inside a dock worktree, read that
 dock's `DOCK.md` first — it is your complete brief and it wins on scope. The
 `## Operating policy` block in `DOCK.md` tells you how much of the loop runs
-unattended here.
+unattended here. **`drydock start` does not generate that block yet — it
+arrives in #4.** If it is absent, assume the manual posture: implement, commit,
+post your summary, and stop at the review gate.
 
 ## The invariant
 
@@ -56,10 +58,12 @@ core of the product.
   where it is auditable.
 - Do not edit `.drydock/docks/*.json` by hand. Do not hand-write a gate receipt
   into a PR body.
-- A verdict may be recorded by an agent, attributed `agent:<role>`. It is only
-  worth something if the reviewer and QA agents never saw the developer's
-  summary or session — issue text and `git diff` only. Do not review your own
-  work.
+- A verdict may be recorded by an agent, attributed `agent:<role>` via the
+  `DRYDOCK_ACTOR` environment variable. (`drydock gate --as` arrives in #3; it
+  is not a flag today, and unknown flags are ignored rather than rejected.) It
+  is only worth something if the reviewer and QA agents never saw the
+  developer's summary or session — issue text and `git diff` only. Do not
+  review your own work.
 
 ## Finishing
 

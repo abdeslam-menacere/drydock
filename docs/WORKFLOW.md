@@ -4,6 +4,10 @@ New here? Start with [`GETTING-STARTED.md`](GETTING-STARTED.md) instead — it
 walks the same loop with setup, screenshots of the output, and troubleshooting.
 This page is the condensed reference.
 
+> Anything marked **Not shipped yet — #N** is a decided behaviour that has not
+> landed; `#N` is the issue that delivers it. Everything unmarked works today.
+> The full list is in the README under *Honest status*.
+
 ## Setup, once per repo
 
 ```bash
@@ -25,6 +29,10 @@ The first run also asks how much of the loop you want unattended — full
 autopilot, trust-but-verify, or fully manual. It asks once and writes the answer
 to `drydock.config.json`. `drydock config` reopens it.
 
+**Not shipped yet — #2.** There is no interview and no `config` command;
+`drydock config` exits with `Unknown command: config`. Until #2 lands, every
+run is the manual path below.
+
 ## Per feature
 
 ### 1. Write the issue
@@ -39,17 +47,21 @@ If the issue needs two branches, it's two issues.
 /drydock 412
 ```
 
+**Not shipped yet — #5.** There is no `.github/prompts/` directory, so
+`/drydock` does not resolve, and no orchestrator contract exists to run behind
+it. Use [the manual path](#the-manual-path) today; it is the same gates.
+
 That's the whole loop. The orchestrator:
 
 1. Fetches issue #412.
-2. `drydock start 412` — branch, worktree, `DOCK.md` with the operating policy rendered into it.
+2. `drydock start 412` — branch, worktree, `DOCK.md` with the operating policy rendered into it. Policy block **not shipped yet — #4**.
 3. Spawns the developer to **plan only**, and collects every ambiguity in one batch.
 4. Asks you that batch — once, before any code exists. This is the only point in a clean run where it needs you.
 5. Spawns the developer to implement.
 6. Spawns the reviewer with fresh context: the issue text and `git diff`, and nothing else. It is not given the developer's summary. See `SPEC.md` §10.3.
-7. `drydock gate 412 review --as agent:drydock-reviewer`
+7. `drydock gate 412 review --as agent:drydock-reviewer` — `--as` **not shipped yet — #3**; today, `DRYDOCK_ACTOR=agent:drydock-reviewer drydock gate 412 review --pass`.
 8. Spawns QA the same way → `drydock gate 412 qa --as agent:drydock-qa`
-9. `drydock land 412` — PR opens with the gate receipt and auto-merge armed.
+9. `drydock land 412` — PR opens with the gate receipt. Auto-merge arming **not shipped yet — #3**.
 10. GitHub merges when CI is green.
 
 A failed gate re-spawns the developer with the findings, up to the configured
@@ -61,8 +73,8 @@ and the receipt are the audit record.
 
 ### The manual path
 
-Still fully supported, and it is what `human-gates` autonomy gives you. Open the
-dock yourself:
+Still fully supported, it is what `human-gates` autonomy gives you, and it is
+the only path that runs today. Open the dock yourself:
 
 ```bash
 drydock start 412
@@ -89,11 +101,18 @@ drydock gate 412 review --pass --note "scope clean, tests real"
 ```
 
 Run the reviewer agent first, then record its verdict. An agent that records its
-own verdict attributes it:
+own verdict attributes it through `DRYDOCK_ACTOR`, which lands in the receipt's
+`By` column:
 
 ```bash
-drydock gate 412 review --pass --as agent:drydock-reviewer --note "scope clean"
+DRYDOCK_ACTOR=agent:drydock-reviewer drydock gate 412 review --pass --note "scope clean"
 ```
+
+**Not shipped yet — #3.** The equivalent flag,
+`drydock gate 412 review --pass --as agent:drydock-reviewer`, arrives in #3.
+Do not use it before then: unknown flags are ignored rather than rejected, so
+the verdict is recorded under your own username — an agent verdict filed as a
+human one.
 
 Fail freely:
 
@@ -118,7 +137,9 @@ drydock land 412 --dry-run   # preview the PR body first
 drydock land 412
 ```
 
-Verifies every gate is `pass` **and** stamped with the current HEAD, pushes, opens the PR with the gate receipt embedded, and arms auto-merge if it's enabled. CI re-verifies server-side; GitHub merges once the checks are green.
+Verifies every gate is `pass` **and** stamped with the current HEAD, pushes, and opens the PR with the gate receipt embedded. CI re-verifies server-side.
+
+**Not shipped yet — #3.** `land` does not arm auto-merge, so the merge itself is still yours to click once the checks are green.
 
 If an agent committed after the gates passed:
 
@@ -142,7 +163,7 @@ drydock clean --merged   # sweep everything landed
 /drydock 412 415 418
 ```
 
-Or manually:
+**Not shipped yet — #5.** Manually:
 
 ```bash
 drydock start 412 && drydock start 415 && drydock start 418

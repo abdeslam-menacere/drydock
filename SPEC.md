@@ -159,3 +159,17 @@ The invariant becomes **policy-gated merge**. "Gated" said *who*. "Policy-gated"
 With the human optional, the backstop is entirely server-side: the `drydock-gates` check, branch protection, and CODEOWNERS. Auto-merge with `drydock-gates` *not* set as a required status check merges immediately and unverified — strictly worse than the manual loop. Setup must verify it.
 
 §4.3 already said the server layer is the real one and the CLI is a convenience. This decision is what makes that literally true, and it promotes §4.4's residual risk from theoretical to load-bearing.
+
+### Delivery
+
+This section is a decision, not a description of the shipped CLI. As of `v0.1.0` the command surface is still §6 exactly: `init`, `start`, `status`, `gate`, `land`, `clean`. The decision lands across five issues:
+
+| Decision | Delivered by | Issue |
+|---|---|---|
+| The record itself, and the governance docs | this section, `AGENTS.md`, `.github/copilot-instructions.md`, `docs/` | **#1** |
+| §10.2 — autonomy as configuration | `drydock config`, the first-run interview, `init` verifying branch protection | **#2** |
+| §10.1 — agent verdicts, and unattended merge | `gate --as <actor>`, `land` arming auto-merge | **#3** |
+| Policy reaching the agent | the `## Operating policy` block rendered into `DOCK.md` by `start` | **#4** |
+| §10.3 — the context boundary, enforced | `.github/agents/drydock-orchestrator.md`, `.github/prompts/drydock.prompt.md` | **#5** |
+
+Until #3, §10.1 attribution works through the `DRYDOCK_ACTOR` environment variable, which `gate` writes to the manifest's `by` field. `gate` ignores unrecognised flags rather than rejecting them, so `--as` passed today is silently dropped and the verdict is attributed to the invoking user — an agent verdict recorded as a human one. Rejecting unknown flags belongs with #3.

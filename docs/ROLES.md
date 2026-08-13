@@ -49,4 +49,6 @@ It is also the role that decides when to stop. A failed gate re-spawns the devel
 
 One file per role in `.github/agents/`, which is simultaneously Copilot's custom-agent path, a plain instruction file readable by Claude Code and Cursor, and the target that Drydock's BMAD agent definitions point at.
 
+Three of the four are there today: `drydock-dev.md`, `drydock-reviewer.md`, `drydock-qa.md`. **`drydock-orchestrator.md` is not shipped yet — it arrives in #5**, along with the `/drydock` prompt that invokes it. Until then the orchestrator is a decided role with no contract file, and its work is done by whoever is driving the loop by hand.
+
 One source of truth. When the model landscape changes again, you keep your process.
