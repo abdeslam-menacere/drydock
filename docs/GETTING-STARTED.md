@@ -30,10 +30,21 @@ Click **Use this template → Create a new repository** on GitHub, then:
 gh repo clone <you>/<your-new-repo>
 cd <your-new-repo>
 node bin/drydock.js init
+code .
 ```
 
 `init` writes `drydock.config.json`, creates `.drydock/docks/`, updates
 `.gitignore`, and runs a preflight check telling you what's missing.
+
+That is the whole setup. From here on the loop is one line in Copilot Chat:
+
+```
+/drydock 1
+```
+
+The first time you run it, Drydock asks how you want the loop to behave — full
+autopilot, trust-but-verify, or fully manual — writes your answer to
+`drydock.config.json`, and never asks again. `drydock config` reopens it.
 
 Make the CLI available as `drydock` (optional, but every example reads better):
 
@@ -61,6 +72,13 @@ This is the step that turns Drydock from advice into policy. On GitHub:
 Without this, the CLI is a convenience anyone can route around. With it,
 a pull request that skipped the gates cannot merge.
 
+**Auto-merge requires it.** If you let Drydock arm auto-merge on the pull
+requests it opens, `drydock-gates` must be a **required** status check on the
+branch. A required check makes GitHub wait for a verified receipt before
+merging. Without one there is nothing to wait for, so the pull request merges
+the moment it opens — unverified, and strictly worse than no automation at all.
+The unattended loop has no human backstop; this rule is the backstop.
+
 ---
 
 ## 2. Write an issue
@@ -74,7 +92,44 @@ If the issue needs two branches, it is two issues.
 
 ---
 
-## 3. Open a dock
+## 3. Run it
+
+In Copilot Chat, in VS Code, at the repo root:
+
+```
+/drydock 1
+```
+
+The orchestrator fetches the issue, opens the dock, and runs the loop:
+
+1. `drydock start 1` — branch, worktree, and a generated `DOCK.md`.
+2. A developer agent **plans only**, and hands back every ambiguity in one batch.
+3. You answer that batch. Once, before any code exists. In a clean run this is
+   the only point that needs you.
+4. The developer implements.
+5. A reviewer agent is spawned with the issue text and `git diff` — and nothing
+   else. It does not get the developer's summary, so the gate is a review rather
+   than a countersignature.
+6. `drydock gate 1 review --as agent:drydock-reviewer`
+7. QA the same way → `drydock gate 1 qa --as agent:drydock-qa`
+8. `drydock land 1` — a pull request opens with the gate receipt.
+9. CI verifies the receipt; GitHub merges when it's green.
+
+A failed gate sends the developer back with the findings, up to the configured
+retry budget, then stops and reports.
+
+Everything the agents did — plan, assumptions, findings, real test output,
+verdicts — is posted to the issue as it happens. Nobody watched the run, so that
+trail and the receipt are the record of what was approved and against which
+commit.
+
+The rest of this guide walks the same loop by hand. Read it even if you never
+run it that way: it is what the orchestrator is doing on your behalf, and it is
+what you fall back to when a run goes wrong.
+
+---
+
+## 4. Open a dock
 
 ```bash
 drydock start 1
@@ -99,7 +154,7 @@ two empty sections the agent must fill in: **Assumptions** and **Follow-ups**.
 
 ---
 
-## 4. Hand it to Copilot
+## 5. Hand it to Copilot
 
 ```bash
 cd ../.docks/1-add-refund-endpoint
@@ -118,8 +173,8 @@ What each flag buys you:
   `copilot --resume "dock-1"`. One session per dock, so requirements from one
   issue never leak into another.
 - `--add-dir .` — file access stays inside this worktree. Sibling docks are live.
-- `--deny-tool='shell(git push)'` — the agent has no merge authority. Landing is
-  a human decision, after gates.
+- `--deny-tool='shell(git push)'` — the agent does not push. Landing goes through
+  `drydock land`, after the gates.
 
 ### Load the skills
 
@@ -150,7 +205,7 @@ other step below has a task too.
 
 ---
 
-## 5. Gate it
+## 6. Gate it
 
 Gates run in order. QA is refused until review passes.
 
@@ -160,7 +215,9 @@ drydock gate 1 qa     --pass --note "criteria met, probed edge cases"
 ```
 
 Run the reviewer and QA agents first (`.github/agents/`), then record their
-verdict. **Fail freely:**
+verdict. An agent recording its own verdict attributes it with
+`--as agent:drydock-reviewer`, so the receipt always shows who decided. **Fail
+freely:**
 
 ```bash
 drydock gate 1 review --fail --note "touches auth/, unrelated to #1"
@@ -190,7 +247,7 @@ under a green check.
 
 ---
 
-## 6. Land
+## 7. Land
 
 ```bash
 drydock land 1 --dry-run   # inspect the PR body first
@@ -214,7 +271,7 @@ you are asking to merge.
 
 ---
 
-## 7. Clean up
+## 8. Clean up
 
 ```bash
 drydock clean 1          # after merge
@@ -224,6 +281,12 @@ drydock clean --merged   # sweep everything landed
 ---
 
 ## Running several at once
+
+```
+/drydock 1 2 3
+```
+
+Or by hand:
 
 ```bash
 drydock start 1 && drydock start 2 && drydock start 3
@@ -238,11 +301,17 @@ drydock status
 ```
 
 One named Copilot session per dock; switch with `copilot --resume "dock-2"`.
+Orchestrated, the isolation comes from spawning each agent with fresh context
+instead, and you stay in one chat.
 
-**Practical ceiling is three to five.** Not because the tooling strains, but
-because reviewing is human and does not parallelize. If your gates are backing
-up, you have too many docks open — not too few agents. Drydock is built to make
-that visible rather than hide it.
+**Practical ceiling is three to five — while you are the one reviewing.** Not
+because the tooling strains, but because reviewing is human and does not
+parallelize. If your gates are backing up, you have too many docks open — not
+too few agents. Drydock is built to make that visible rather than hide it.
+
+Running unattended moves the ceiling to a different question: how many diffs are
+you willing to have merged without reading them? Decide that when you set the
+autonomy level, not per issue.
 
 ---
 
@@ -254,7 +323,12 @@ dock worktree is fine; Drydock resolves state to the main repo.
 **`Gate "review" has not passed`** — gates are ordered. Run review first.
 
 **`Dock #N cannot land: "review" is STALE`** — you committed after gating.
-Re-run the stale gates. There is deliberately no bypass flag.
+Re-run the stale gates. There is deliberately no bypass flag, and autonomy does
+not change that — an agent that cannot pass its own gates does not merge.
+
+**A pull request merged without CI having run** — auto-merge is on but
+`drydock-gates` is not a **required** status check on the branch. Fix the branch
+protection rule; see step 1.
 
 **CI fails with `No Drydock gate receipt in this PR`** — the PR was opened by
 hand. Close it and use `drydock land`.
@@ -273,6 +347,6 @@ having executed no steps is a runner problem, not a Drydock problem.
 | | |
 |---|---|
 | [`WORKFLOW.md`](WORKFLOW.md) | The loop, condensed |
-| [`ROLES.md`](ROLES.md) | Why three roles and not seven |
-| [`../SPEC.md`](../SPEC.md) | Invariants, state model, threat model |
+| [`ROLES.md`](ROLES.md) | Why four roles and not seven |
+| [`../SPEC.md`](../SPEC.md) | Invariants, state model, threat model, the autonomy decision |
 | [`ADOPTION.md`](ADOPTION.md) | Rolling out on GitHub Enterprise |

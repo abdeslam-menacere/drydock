@@ -10,6 +10,20 @@ current commit**.
 Built for [GitHub Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli)
 and VS Code. Works with any agent that reads instruction files.
 
+Use the template, clone it, open VS Code, and say:
+
+```
+/drydock 412
+```
+
+Issue #412 gets a branch, a worktree, and an agent brief. A developer agent plans
+it, asks you everything it needs in one batch, and implements it. A reviewer
+agent that has never seen the developer's reasoning gates it. QA gates it after
+that. A pull request opens with a receipt binding both verdicts to the exact
+commit. GitHub merges it when CI is green.
+
+Or drive it yourself — same gates, same receipt:
+
 ```bash
 drydock start 412                 # issue #412 → branch, worktree, agent brief
 drydock gate 412 review --pass    # principal review
@@ -17,6 +31,10 @@ drydock gate 412 qa --pass        # QA validation
 drydock land 412                  # gates verified → PR opened with a receipt
 drydock clean 412                 # worktree and branch removed
 ```
+
+How much runs unattended is a question you answer once, on first run. Full
+autopilot, trust-but-verify, or fully manual are the same code path with
+different config — see [`SPEC.md` §10](SPEC.md).
 
 **[→ Getting started](docs/GETTING-STARTED.md)** — empty repo to gated PR in fifteen minutes.
 
@@ -30,7 +48,11 @@ Click **Use this template → Create a new repository**, then:
 gh repo clone <you>/<your-new-repo>
 cd <your-new-repo>
 node bin/drydock.js init
+code .
 ```
+
+Then `/drydock <issue>` in Copilot Chat. The first run asks how you want the loop
+to behave, writes the answer to `drydock.config.json`, and never asks again.
 
 You get, wired together and ready:
 
@@ -39,10 +61,23 @@ You get, wired together and ready:
 | `bin/`, `src/` | The CLI. Zero runtime dependencies — Node's standard library and `git`. |
 | `skills/` | Copilot CLI skills: the loop, dock switching, the audit trail, GitHub operation policy |
 | `.github/copilot-instructions.md` | Repo-wide agent rules, picked up automatically |
-| `.github/agents/` | The three role contracts — developer, reviewer, QA |
+| `.github/agents/` | The role contracts — orchestrator, developer, reviewer, QA |
 | `.github/workflows/drydock-gates.yml` | Server-side gate enforcement |
 | `.github/ISSUE_TEMPLATE/` | An issue form built around *explicitly out of scope* |
 | `.vscode/` | Tasks for every dock command, plus extension recommendations |
+
+### Before you turn on auto-merge
+
+Auto-merge has one prerequisite, and it is not optional. On GitHub → **Settings
+→ Branches → Add rule** for `main`:
+
+- ☑ Require a pull request before merging
+- ☑ Require status checks to pass → select **Drydock Gates / Verify gate receipt**
+- ☑ Do not allow bypassing the above settings
+
+With `drydock-gates` set as a **required** status check, an unverified PR cannot
+merge. Without it, auto-merge merges immediately and unverified — which is
+strictly worse than doing nothing. Setup checks for this and warns you.
 
 Install the skills into Copilot CLI globally:
 
@@ -93,7 +128,14 @@ simply cannot merge.
 
 **One session per dock.** `copilot --name "dock-412" --add-dir .` keeps each
 issue's context — and each issue's requirements — from bleeding into the next.
-Resume it later by name.
+Resume it later by name. Orchestrated, the same isolation comes from spawning
+each agent with fresh context instead.
+
+**A reviewer that never read the author's summary.** An agent may record a gate
+verdict, attributed `agent:<role>`. That is only worth something because the
+reviewer and QA agents are given the issue text and the diff and nothing else —
+not the developer's account of its own work. A reviewer reading the author's
+explanation is a rubber stamp with extra steps.
 
 ## Works with your agent
 
@@ -107,10 +149,11 @@ One set of files, every agent. When you switch models next year, you keep your p
 
 ## The roles
 
-Three, not seven. A role only exists here if it owns a **gate with a pass/fail verdict**.
+Four, not seven. A role only exists here if it owns a **gate with a pass/fail verdict**.
 
 | Role | Gate | Question it answers |
 |---|---|---|
+| **Orchestrator** | ordering + isolation | Did the right agent see the right context, and when do we stop? |
 | **Dock Developer** | — | Implements exactly one issue, inside one worktree |
 | **Principal Reviewer** | `review` | Is the scope disciplined and the design sound? |
 | **QA Validator** | `qa` | Are the acceptance criteria actually met, adversarially? |
@@ -138,7 +181,7 @@ Use it without BMAD too; that's the default.
 | [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) | Empty repo → gated PR, step by step |
 | [`SPEC.md`](SPEC.md) | Design spec, invariants, state model, threat model |
 | [`docs/WORKFLOW.md`](docs/WORKFLOW.md) | The loop, condensed |
-| [`docs/ROLES.md`](docs/ROLES.md) | Why three roles and not seven |
+| [`docs/ROLES.md`](docs/ROLES.md) | Why four roles and not seven |
 | [`docs/ADOPTION.md`](docs/ADOPTION.md) | Rolling it out on GitHub Enterprise |
 | [`docs/DEMO-SCRIPT.md`](docs/DEMO-SCRIPT.md) | 90-second demo, shot by shot |
 
@@ -164,6 +207,9 @@ copied receipts, and partial gates.
   run*. Someone with write access can fabricate one. Drydock raises the cost and
   creates an audit trail; it is not a substitute for CODEOWNERS. Closing this is
   the v0.4 milestone — see [`SPEC.md` §4.4](SPEC.md).
+- Running unattended, that gap and branch protection are the *only* backstops
+  left. Turn auto-merge on without `drydock-gates` as a required check and
+  everything merges instantly, unverified.
 - Automatic conflict arbitration between concurrent docks is the next milestone
   and is not built yet.
 - Not published to npm. The CLI ships in the template; use `npm link` or
