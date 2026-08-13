@@ -26,11 +26,15 @@ Business logic belongs in `commands/`. `lib/` stays dumb.
 
 ## The invariant
 
-One issue → one branch → one worktree → one agent → gated merge. Any change that weakens it needs a human decision recorded in `SPEC.md`, not a commit message.
+One issue → one branch → one worktree → one agent → policy-gated merge. Any change that weakens it needs a decision recorded in `SPEC.md`, not a commit message. The move from human-gated to configurable autonomy is recorded in `SPEC.md` §10.
 
 ## Gates
 
 Gate verdicts bind to a commit SHA and go stale on any new commit. This is the core of the product. Do not add an override flag, a `--skip-gates`, or a `--force` that bypasses verification. If a bypass is genuinely needed, it belongs in branch protection settings where it's auditable, not in the CLI.
+
+Agents may record verdicts, attributed `agent:<role>`. That is a change of *who*, not of *what*: ordering, SHA binding, and staleness apply identically. Two rules make an agent verdict worth something — the reviewer and QA agents must be context-independent from the developer agent, and the whole trail lands in the issue comments and the PR receipt.
+
+How much of the loop runs unattended is configuration, not code. Do not hardcode an autonomy level, and do not remove the fully-manual path.
 
 ## Testing
 

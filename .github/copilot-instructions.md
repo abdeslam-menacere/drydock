@@ -5,14 +5,17 @@ git worktree, and its own agent session, and nothing opens a pull request until
 review and QA have both passed against the current commit.
 
 Read this before doing anything. If you are inside a dock worktree, read that
-dock's `DOCK.md` first — it is your complete brief and it wins on scope.
+dock's `DOCK.md` first — it is your complete brief and it wins on scope. The
+`## Operating policy` block in `DOCK.md` tells you how much of the loop runs
+unattended here.
 
 ## The invariant
 
-> One issue → one branch → one worktree → one agent → gated merge.
+> One issue → one branch → one worktree → one agent → policy-gated merge.
 
-Every rule below follows from it. A change that weakens it needs a human
-decision recorded in `SPEC.md`, not a commit message.
+Every rule below follows from it. A change that weakens it needs a decision
+recorded in `SPEC.md`, not a commit message. See `SPEC.md` §10 for the autonomy
+decision.
 
 ## Where am I
 
@@ -33,8 +36,9 @@ decision recorded in `SPEC.md`, not a commit message.
 3. **Record assumptions.** Ambiguity gets written into `## Assumptions` in
    `DOCK.md`, then you proceed. Silent guessing is the failure mode this entire
    system exists to prevent.
-4. **Never switch branches, rebase, or merge.** You have no merge authority.
-   Your work ends at a reviewable commit.
+4. **Never switch branches, rebase, or merge by hand.** Landing is `drydock land`
+   after the gates pass, and merging is GitHub's once CI is green. Your work ends
+   at a reviewable commit.
 5. **Small, atomic commits.** Conventional messages (`feat:`, `fix:`, `test:`).
 6. **Run the tests and report real output.** Never claim tests pass without
    running them. A behavioural change with no test fails QA.
@@ -52,15 +56,21 @@ core of the product.
   where it is auditable.
 - Do not edit `.drydock/docks/*.json` by hand. Do not hand-write a gate receipt
   into a PR body.
+- A verdict may be recorded by an agent, attributed `agent:<role>`. It is only
+  worth something if the reviewer and QA agents never saw the developer's
+  summary or session — issue text and `git diff` only. Do not review your own
+  work.
 
 ## Finishing
 
 Post a summary containing: what changed in one paragraph, every file touched and
 why, real test output, every assumption made, and anything you deliberately did
-**not** do and why.
+**not** do and why. Post it to the issue as well as to the session — with no
+human watching the loop, the comment trail is the only oversight there is.
 
-Then stop. A human runs `drydock gate <issue> review`. You do not proceed past
-this point, and you never merge.
+Then stop and hand off to the review gate. Whether that gate is run by a human
+or by a reviewer agent is set by this repo's configuration; either way it is not
+you, and you do not run it against your own work.
 
 ## This repo's own constraints
 
