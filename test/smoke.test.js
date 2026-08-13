@@ -163,15 +163,28 @@ ok('dock lives under .docks', path.relative(repo, dock.worktree).split(path.sep)
 ok('git ignores the docks directory', !git(['status', '--porcelain']).includes('.docks'));
 ok('start warns that setup is pending', (s.stdout + s.stderr).includes('drydock config'));
 
+// The brief is scaffolding. If git sees it, every dock is born dirty and `land`
+// refuses forever — the exact bug that blocked the first live autonomous run.
+const excludeFile = path.join(repo, '.git', 'info', 'exclude');
+const excludeLines = () => fs.readFileSync(excludeFile, 'utf8').split(/\r?\n/).map((l) => l.trim());
+ok('start leaves the worktree clean', git(['status', '--porcelain'], dock.worktree) === '',
+  git(['status', '--porcelain'], dock.worktree));
+ok('start excludes DOCK.md', excludeLines().includes('/DOCK.md'));
+ok('git does not see DOCK.md at all', !git(['status', '--porcelain', '-uall'], dock.worktree).includes('DOCK.md'));
+
 console.log('\nisolation');
 dd(['start', '415']);
 const d415 = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/415.json'), 'utf8'));
 ok('two docks, distinct worktrees', d415.worktree !== dock.worktree);
 ok('two docks, distinct branches', d415.branch !== dock.branch);
+ok('a second dock is clean too', git(['status', '--porcelain'], d415.worktree) === '');
+ok('the exclude entry is written once, not per dock',
+  excludeLines().filter((l) => l === '/DOCK.md').length === 1);
 
-// agent does work
+// agent does work — with the sweeping `git add -A` a real agent reaches for
 fs.writeFileSync(path.join(dock.worktree, 'refund.js'), 'export const refund = () => {};\n');
 git(['add', '-A'], dock.worktree); git(['commit', '-qm', 'feat: refund'], dock.worktree);
+ok('add -A does not sweep DOCK.md into the commit', git(['ls-files', 'DOCK.md'], dock.worktree) === '');
 
 console.log('\nrunning from inside a dock');
 // The dock worktree has no drydock.config.json — commands must still resolve
@@ -188,6 +201,8 @@ ok('qa now passes', dd(['gate', '412', 'qa', '--pass']).status === 0);
 console.log('\nland');
 const dry = dd(['land', '412', '--dry-run']);
 ok('dry-run succeeds with fresh gates', dry.status === 0, dry.stdout + dry.stderr);
+ok('DOCK.md is not in the diff that would be pushed',
+  !git(['diff', '--name-only', 'main...HEAD'], dock.worktree).includes('DOCK.md'));
 ok('receipt marker present', dry.stdout.includes('**drydock-receipt:v1**'));
 ok('marker is not an HTML comment', !dry.stdout.includes('<!-- drydock-receipt'));
 const head = git(['rev-parse', 'HEAD'], dock.worktree);
@@ -238,6 +253,20 @@ ok('CI accepts a fresh receipt', evaluate(dry.stdout, head).length === 0, evalua
 ok('CI fails a stale receipt', evaluate(dry.stdout, 'f'.repeat(40)).some((p) => p.includes('STALE')));
 ok('CI fails a gate that did not pass', evaluate(dry.stdout.replace('✅ pass', '❌ fail'), head).length > 0);
 ok('CI fails a missing receipt', evaluate('Closes #1\n\nNo receipt here.\n', head).length > 0);
+
+console.log('\ndirty worktree');
+// Excluding the brief must not blunt the real check: uncommitted work of any
+// kind still blocks the land, tracked or not.
+fs.appendFileSync(path.join(dock.worktree, 'refund.js'), '// uncommitted\n');
+const tracked = dd(['land', '412', '--dry-run']);
+ok('land refuses uncommitted tracked changes', tracked.status !== 0, tracked.stdout);
+ok('and says why', (tracked.stdout + tracked.stderr).includes('uncommitted'));
+git(['checkout', '--', 'refund.js'], dock.worktree);
+
+fs.writeFileSync(path.join(dock.worktree, 'scratch.js'), '// forgotten new file\n');
+ok('land refuses an untracked source file', dd(['land', '412', '--dry-run']).status !== 0);
+fs.rmSync(path.join(dock.worktree, 'scratch.js'));
+ok('land succeeds again once the worktree is clean', dd(['land', '412', '--dry-run']).status === 0);
 
 console.log('\nstale detection');
 fs.appendFileSync(path.join(dock.worktree, 'refund.js'), '// extra\n');

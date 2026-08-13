@@ -3,6 +3,10 @@ import { run, tryRun } from './sh.js';
 export const headSha = (cwd) => run('git', ['rev-parse', 'HEAD'], { cwd });
 export const currentBranch = (cwd) => run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
 
+/** The shared .git directory — the same path from a linked worktree or the main tree. */
+export const commonDir = (cwd) =>
+  run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd });
+
 export function branchExists(name, cwd) {
   return tryRun('git', ['show-ref', '--verify', '--quiet', `refs/heads/${name}`], { cwd }).ok;
 }
