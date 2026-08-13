@@ -4,7 +4,11 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { pendingQuestions } from '../src/lib/config.js';
+import { QUESTIONS, SCHEMA_VERSION } from '../src/lib/questions.js';
+import { runInterview } from '../src/commands/config.js';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/drydock.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drydock-test-'));
@@ -17,6 +21,38 @@ const ok = (name, cond, extra = '') => {
 };
 const git = (args, cwd = repo) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 const dd = (args, cwd = repo) => spawnSync('node', [CLI, ...args], { cwd, encoding: 'utf8' });
+const ddEnv = (args, env, cwd = repo) =>
+  spawnSync('node', [CLI, ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } });
+const cfgFile = path.join(repo, 'drydock.config.json');
+const readCfg = () => JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+const gitignore = () => fs.readFileSync(path.join(repo, '.gitignore'), 'utf8');
+const json = (r) => { try { return JSON.parse(r.stdout); } catch { return null; } };
+
+/** Drive the real interview over scripted streams, capturing what it asked. */
+async function answer(lines, opts = {}) {
+  const queue = [...lines];
+  let asked = '';
+  const input = new Readable({ read() {} });
+  // One answer per prompt: feed the next line only once a question has been
+  // written, otherwise readline swallows the whole script on the first read.
+  const output = new Writable({
+    write(chunk, _enc, cb) {
+      const text = String(chunk);
+      asked += text;
+      if (text.endsWith(': ')) input.push(queue.length ? queue.shift() + '\n' : null);
+      cb();
+    },
+  });
+
+  const real = console.log;
+  console.log = () => {};
+  try {
+    const cfg = await runInterview(repo, { ...opts, io: { input, output } });
+    return { cfg, asked };
+  } finally {
+    console.log = real;
+  }
+}
 
 console.log('\nDrydock smoke test');
 
@@ -30,8 +66,89 @@ git(['add', '-A']); git(['commit', '-qm', 'init']);
 
 console.log('\ninit');
 ok('exits 0', dd(['init']).status === 0);
-ok('writes config', fs.existsSync(path.join(repo, 'drydock.config.json')));
+ok('writes config', fs.existsSync(cfgFile));
 ok('creates state dir', fs.existsSync(path.join(repo, '.drydock', 'docks')));
+ok('ignores .docks/', /^\.docks\/$/m.test(gitignore()));
+dd(['init', '--force']);
+ok('re-running init does not duplicate the ignore entry',
+  gitignore().split(/\r?\n/).filter((l) => l.trim() === '.docks/').length === 1, gitignore());
+
+console.log('\nconfig');
+// The wizard must never block: every command here runs with a piped stdin, the
+// same as CI and any agent shelling out. A prompt would hang this suite forever.
+const wizard = dd(['config']);
+ok('wizard exits 0 when stdin is not a tty', wizard.status === 0, wizard.stderr);
+ok('wizard says how to configure instead', (wizard.stdout + wizard.stderr).includes('drydock config set'));
+ok('wizard does not claim setup completed', readCfg().setup.completed !== true);
+const forced = ddEnv(['config'], { DRYDOCK_NONINTERACTIVE: '1' });
+ok('DRYDOCK_NONINTERACTIVE=1 skips it too',
+  forced.status === 0 && (forced.stdout + forced.stderr).includes('cannot prompt'), forced.stderr);
+
+const policy = json(dd(['config', 'show', '--json']));
+ok('show --json emits parseable JSON and nothing else', policy !== null, dd(['config', 'show', '--json']).stdout);
+ok('reports setup.completed false before setup', policy?.setup.completed === false);
+ok('docksDir defaults to .docks', policy?.docksDir === '.docks');
+ok('nested policy defaults present',
+  policy?.comments.verbosity === 'full' && policy?.autonomy.merge.method === 'squash');
+
+ok('set exits 0', dd(['config', 'set', 'comments.verbosity', 'off']).status === 0);
+const afterSet = json(dd(['config', 'show', '--json']));
+ok('set round-trips', afterSet?.comments.verbosity === 'off');
+ok('set leaves siblings alone',
+  afterSet?.comments.enabled === true && afterSet?.autonomy.merge.method === 'squash');
+dd(['config', 'set', 'autonomy.merge.enabled', 'false']);
+ok('set coerces to the schema type', json(dd(['config', 'show', '--json']))?.autonomy.merge.enabled === false);
+ok('set rejects an unknown key', dd(['config', 'set', 'nope.nope', '1']).status !== 0);
+ok('set rejects a value outside the schema', dd(['config', 'set', 'comments.verbosity', 'loud']).status !== 0);
+ok('set rejects a whole section', dd(['config', 'set', 'comments', 'off']).status !== 0);
+
+// A config file that names one nested key must keep every sibling default.
+fs.writeFileSync(cfgFile, JSON.stringify({ comments: { verbosity: 'milestones' } }, null, 2));
+const merged = json(dd(['config', 'show', '--json']));
+ok('partial config keeps its own value', merged?.comments.verbosity === 'milestones');
+ok('partial config keeps nested defaults',
+  merged?.comments.enabled === true && merged?.comments.cliLifecycle === true);
+ok('partial config keeps top-level defaults', merged?.baseBranch === 'main' && merged?.docksDir === '.docks');
+
+ok('reset exits 0', dd(['config', 'reset']).status === 0);
+ok('reset restores policy defaults', json(dd(['config', 'show', '--json']))?.comments.verbosity === 'full');
+
+// Asked once, then only ever asked what is new.
+const bumped = [{ id: 'a', schemaVersion: 1 }, { id: 'b', schemaVersion: 2 }];
+ok('an unconfigured repo is asked everything',
+  pendingQuestions({ setup: { completed: false, schemaVersion: 0 } }, bumped).length === 2);
+ok('a configured repo is asked nothing',
+  pendingQuestions({ setup: { completed: true, schemaVersion: SCHEMA_VERSION } }).length === 0);
+ok('a schema bump asks only the new question',
+  pendingQuestions({ setup: { completed: true, schemaVersion: 1 } }, bumped).map((q) => q.id).join() === 'b');
+ok('every shipped question is versioned',
+  QUESTIONS.every((q) => Number.isInteger(q.schemaVersion) && q.schemaVersion >= 1));
+
+console.log('\ninterview');
+// Preset 2 = trust-but-verify, then decline to customise.
+const first = await answer(['2', 'n']);
+ok('asks the preset question', first.asked.includes('How much should Drydock do on its own?'));
+ok('a declined customise skips the detail', !first.asked.includes('Autonomy level'));
+const answered = readCfg();
+ok('marks setup completed', answered.setup.completed === true);
+ok('stamps the schema version it asked', answered.setup.schemaVersion === SCHEMA_VERSION);
+ok('records when', typeof answered.setup.at === 'string' && answered.setup.at.length > 0);
+ok('applies the chosen preset', answered.autonomy.level === 'gated-merge'
+  && answered.autonomy.merge.enabled === false
+  && answered.comments.verbosity === 'milestones-findings');
+ok('show --json reflects the answers', json(dd(['config', 'show', '--json']))?.autonomy.level === 'gated-merge');
+
+const again = await answer(['1', 'n']);
+ok('never asks a second time', again.asked === '');
+ok('and leaves the answers alone', readCfg().autonomy.level === 'gated-merge');
+
+const reopened = await answer(['1', 'y', ...Array(QUESTIONS.length).fill('')], { all: true });
+ok('--all reopens the interview', reopened.asked.includes('How much should Drydock do on its own?'));
+ok('customise reaches the detail questions', reopened.asked.includes('Autonomy level'));
+ok('blank answers keep the preset value', readCfg().autonomy.level === 'full');
+ok('start is not blocked once configured', readCfg().setup.completed === true);
+
+dd(['init', '--force']);
 
 console.log('\nstart');
 const s = dd(['start', '412']);
@@ -41,6 +158,10 @@ ok('creates worktree', fs.existsSync(dock.worktree));
 ok('creates DOCK.md', fs.existsSync(path.join(dock.worktree, 'DOCK.md')));
 ok('creates branch', git(['branch', '--list', dock.branch]).length > 0);
 ok('gates start unset', Object.values(dock.gates).every((g) => g === null));
+ok('dock lives inside the repo', dock.worktree.startsWith(repo + path.sep));
+ok('dock lives under .docks', path.relative(repo, dock.worktree).split(path.sep)[0] === '.docks');
+ok('git ignores the docks directory', !git(['status', '--porcelain']).includes('.docks'));
+ok('start warns that setup is pending', (s.stdout + s.stderr).includes('drydock config'));
 
 console.log('\nisolation');
 dd(['start', '415']);
