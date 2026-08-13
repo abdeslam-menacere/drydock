@@ -123,11 +123,13 @@ function renderBrief(meta, cfg, branch) {
 > You are the **sole developer** assigned to this dock.
 > Your entire scope is this one issue. Do not touch work outside it.
 
+${renderPolicy(cfg)}
+
 ## Rules of this dock
 
 1. This worktree is yours alone. Another agent is working in a sibling worktree — never reach outside this directory.
 2. Branch: \`${branch}\`. Base: \`${cfg.baseBranch}\`. Do not switch branches.
-3. If the issue is ambiguous, write your assumptions into this file under **Assumptions** and proceed. Do not silently guess.
+3. Follow the escalation bar in the operating policy. Record every proposed interpretation under **Assumptions**; do not silently guess.
 4. Scope creep is a failure. Anything you notice that is out of scope goes under **Follow-ups** as a proposed new issue — you do not fix it here.
 5. You cannot merge. Your work goes to review and QA gates. Optimise for reviewability: small commits, clear messages.
 
@@ -151,5 +153,44 @@ _(agent fills this in)_
 ## Follow-ups
 
 _(agent proposes out-of-scope work here — do not implement)_
+`;
+}
+
+function renderPolicy(cfg) {
+  const comments = cfg.comments.enabled ? cfg.comments.verbosity : 'off';
+  const autonomy = {
+    full: 'Independent agents may drive implementation, review, QA, landing, and the configured merge flow without waiting for a human gate.',
+    'gated-merge': 'Independent agents may drive implementation, review, QA, and landing; a human performs the merge.',
+    'human-gates': 'After implementation, hand off and wait for a human to record each gate.',
+  }[cfg.autonomy.level] || 'Follow the configured autonomy level and escalate before exceeding it.';
+  const escalation = {
+    'any-ambiguity': 'Ask about anything the issue does not explicitly answer.',
+    'irreversible-only': 'Ask only when a wrong assumption would be difficult to reverse; record other assumptions and proceed.',
+    never: 'Do not stop for clarification; record assumptions and proceed.',
+  }[cfg.escalation.bar] || 'Apply the configured escalation bar.';
+  const batching = cfg.escalation.batchAtPlanTime
+    ? ' Batch every clarification into the initial plan before writing code.'
+    : ' Ask when clarification becomes necessary.';
+  const narration = {
+    full: 'Post every role template separately.',
+    'milestones-findings': 'Combine related progress updates, but preserve findings and final evidence.',
+    milestones: 'Post opening and final milestones only, preserving required final evidence.',
+    off: 'Post no narrative GitHub comments; return required evidence to the orchestrator.',
+  }[comments] || 'Scale narration to the configured value.';
+  const github = {
+    prefer: 'Use GitHub MCP first and fall back to `gh` only when MCP does not cover the operation.',
+    require: 'Use GitHub MCP only; escalate if it does not cover a required operation.',
+    off: 'Use `gh` instead of GitHub MCP.',
+  }[cfg.tools.githubMcp] || 'Follow the configured GitHub tooling preference.';
+
+  return `## Operating policy
+
+This block is authoritative for every agent working in this dock.
+
+- **Autonomy level:** \`${cfg.autonomy.level}\`. ${autonomy}
+- **Escalation bar:** \`${cfg.escalation.bar}\`. ${escalation}${batching}
+- **Comment verbosity:** \`${comments}\`. ${narration}
+- **GitHub MCP preference:** \`${cfg.tools.githubMcp}\`. ${github}
+- **Retry budget:** ${cfg.autonomy.retriesOnGateFail} gate-failure retries. After the budget is exhausted, escalate instead of spawning another attempt.
 `;
 }
