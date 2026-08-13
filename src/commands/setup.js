@@ -127,7 +127,7 @@ export function validateConfig(config, root, { checkBase = true } = {}) {
   if (checkBase && !baseAvailable(config.baseBranch, root)) {
     throw new Error(`Base ref is not available locally: ${config.baseBranch}`);
   }
-  if (!safeRelative(config.docksDir)) throw new Error(`Invalid docks directory: ${config.docksDir}`);
+  if (!safeRelative(config.docksDir, root)) throw new Error(`Invalid docks directory: ${config.docksDir}`);
   validateBranchPattern(config.branchPattern);
   validateGates(config.gates);
   if (config.editor !== null && !safeTool(config.editor)) throw new Error(`Invalid editor command: ${config.editor}`);
@@ -251,13 +251,13 @@ function safeBranch(value) {
     && /^[A-Za-z0-9._/-]+$/.test(value) && !value.startsWith('-') && !value.endsWith('/');
 }
 
-function safeRelative(value) {
-  if (typeof value !== 'string' || !value || path.isAbsolute(value)) return false;
-  const normalized = path.normalize(value);
-  if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || value.includes('\0')) return false;
-  // The repository root and its git directory are never valid worktree parents.
-  const first = normalized.split(/[\\/]/)[0];
-  return normalized !== '.' && first !== '.git';
+function safeRelative(value, root) {
+  if (typeof value !== 'string' || !value || path.isAbsolute(value) || value.includes('\0')) return false;
+  // Compared as resolved paths so every spelling of the root ('.', './', './/') is caught.
+  const relative = path.relative(root, path.resolve(root, value));
+  if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`)) return false;
+  // Windows folds case and strips trailing dots, so '.GIT' and '.git.' both reach .git.
+  return relative.split(path.sep)[0].replace(/\.+$/, '').toLowerCase() !== '.git';
 }
 
 function safeTool(value) {

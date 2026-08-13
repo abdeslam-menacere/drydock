@@ -114,20 +114,34 @@ try {
   check(() => assert.notEqual(invalid.status, 0));
   check(() => assert.deepEqual(snapshot(invalidRepo), invalidBefore, 'invalid options must fail before the first write'));
 
+  // A docks directory must never resolve to the repository root or into .git,
+  // whichever way it is spelled.
   for (const args of [
     ['--branch-pattern', 'feat/{issue}'],
     ['--base-branch', 'missing'],
     ['--cli-spec', 'drydock@latest'],
     ['--docks-dir', '../outside'],
-    ['--docks-dir', '.git'],
-    ['--docks-dir', '.git/worktrees'],
     ['--docks-dir', '.'],
+    ['--docks-dir', './'],
+    ['--docks-dir', './/'],
+    ['--docks-dir', 'work/..'],
+    ['--docks-dir', '.git'],
+    ['--docks-dir', '.git/'],
+    ['--docks-dir', '.git/worktrees'],
+    ['--docks-dir', '.GIT'],
+    ['--docks-dir', '.git.'],
   ]) {
     const cleanRepo = makeRepo(`invalid-${assertions}`);
     const cleanBefore = snapshot(cleanRepo);
     const result = runIn(cleanRepo, ['init', '--yes', ...args]);
-    check(() => assert.notEqual(result.status, 0, `${args[0]} should be rejected`));
-    check(() => assert.deepEqual(snapshot(cleanRepo), cleanBefore, `${args[0]} must fail before writing`));
+    check(() => assert.notEqual(result.status, 0, `${args[1]} should be rejected`));
+    check(() => assert.deepEqual(snapshot(cleanRepo), cleanBefore, `${args[1]} must fail before writing`));
+  }
+
+  for (const docksDir of ['.docks', 'work/docks', '.dd']) {
+    const validRepo = makeRepo(`valid-${assertions}`);
+    const accepted = runIn(validRepo, ['init', '--yes', '--docks-dir', docksDir]);
+    check(() => assert.equal(accepted.status, 0, `${docksDir} should be accepted: ${accepted.stdout}${accepted.stderr}`));
   }
 
   fs.writeFileSync(path.join(invalidRepo, 'drydock.config.json'), '{ invalid json');
