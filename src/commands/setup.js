@@ -254,7 +254,10 @@ function safeBranch(value) {
 function safeRelative(value) {
   if (typeof value !== 'string' || !value || path.isAbsolute(value)) return false;
   const normalized = path.normalize(value);
-  return normalized !== '..' && !normalized.startsWith(`..${path.sep}`) && !value.includes('\0');
+  if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || value.includes('\0')) return false;
+  // The repository root and its git directory are never valid worktree parents.
+  const first = normalized.split(/[\\/]/)[0];
+  return normalized !== '.' && first !== '.git';
 }
 
 function safeTool(value) {

@@ -119,6 +119,9 @@ try {
     ['--base-branch', 'missing'],
     ['--cli-spec', 'drydock@latest'],
     ['--docks-dir', '../outside'],
+    ['--docks-dir', '.git'],
+    ['--docks-dir', '.git/worktrees'],
+    ['--docks-dir', '.'],
   ]) {
     const cleanRepo = makeRepo(`invalid-${assertions}`);
     const cleanBefore = snapshot(cleanRepo);
@@ -189,6 +192,19 @@ try {
   const outsideDoctor = runIn(outside, ['doctor']);
   check(() => assert.notEqual(outsideDoctor.status, 0));
   check(() => assert.match(outsideDoctor.stdout + outsideDoctor.stderr, /missing repository/));
+
+  // An installer that publishes without its templates is broken on npm but green in tests.
+  const packed = spawnSync('npm', ['pack', '--dry-run', '--json'], {
+    cwd: SOURCE_ROOT, encoding: 'utf8', shell: process.platform === 'win32',
+  });
+  check(() => assert.equal(packed.status, 0, packed.stderr));
+  const shipped = JSON.parse(packed.stdout)[0].files.map((entry) => entry.path);
+  const localTemplates = fs.readdirSync(path.join(SOURCE_ROOT, 'templates'), { recursive: true })
+    .map((entry) => `templates/${String(entry).split(path.sep).join('/')}`)
+    .filter((entry) => fs.statSync(path.join(SOURCE_ROOT, entry)).isFile());
+  for (const required of ['bin/drydock.js', 'src/cli.js', 'src/commands/setup.js', 'package.json', ...localTemplates]) {
+    check(() => assert.ok(shipped.includes(required), `published package is missing ${required}`));
+  }
 
   console.log(`init/doctor: ${assertions} passed, 0 failed`);
 } finally {
