@@ -1,4 +1,5 @@
 import init from './commands/init.js';
+import config from './commands/config.js';
 import start from './commands/start.js';
 import gate from './commands/gate.js';
 import land from './commands/land.js';
@@ -10,6 +11,7 @@ const VERSION = '0.1.0';
 
 const COMMANDS = {
   init:   [init,   'Scaffold Drydock in the current repo'],
+  config: [config, 'Set how much Drydock does on its own (show | set | reset)'],
   start:  [start,  'Open a dock for a GitHub issue (branch + worktree + agent brief)'],
   status: [status, 'Show every dock in flight and its gate state'],
   gate:   [gate,   'Record a gate verdict, bound to the current commit'],
@@ -27,12 +29,17 @@ export function main(argv) {
   if (!entry) { log.err(`Unknown command: ${cmd}`); return help(1); }
 
   try {
-    entry[0](args);
+    const result = entry[0](args);
+    if (result && typeof result.then === 'function') result.catch(fail);
   } catch (e) {
-    log.err(e.message);
-    if (process.env.DRYDOCK_DEBUG) console.error(e);
-    process.exit(1);
+    fail(e);
   }
+}
+
+function fail(e) {
+  log.err(e.message);
+  if (process.env.DRYDOCK_DEBUG) console.error(e);
+  process.exit(1);
 }
 
 function help(code = 0) {
