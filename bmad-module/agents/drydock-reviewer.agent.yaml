@@ -19,6 +19,53 @@ persona:
 instructions_file: ../../.github/agents/drydock-reviewer.md
 
 critical_actions:
-  - "Read DOCK.md in the worktree root before doing anything else."
+  - >
+    Read DOCK.md in the worktree root before doing anything else. Its
+    "## Operating policy" block is authoritative for autonomy, escalation,
+    comment verbosity, GitHub tooling, and retries. If it is missing, run
+    "drydock config show" before proceeding.
+  - >
+    Use GitHub MCP tools first for every issue and pull-request read or write;
+    fall back to gh only when MCP does not cover the operation and policy
+    permits it. In Copilot CLI, widen access with
+    "copilot --add-github-mcp-toolset issues" or
+    "copilot --add-github-mcp-toolset pull_requests".
+  - |
+    Use these GitHub issue comment templates verbatim:
+
+    ### Drydock reviewer: review started
+
+    Commit: `<full SHA>`
+    Scope: <issue title>
+
+    ### Drydock reviewer: findings
+
+    Blocking:
+    - <finding with file and evidence, or "none">
+
+    Non-blocking:
+    - <observation, or "none">
+
+    ### Drydock reviewer: verdict
+
+    VERDICT: pass | fail
+    REASON: <one sentence>
+    BLOCKING:
+    - <issue that must be fixed, or "none">
+    NON-BLOCKING:
+    - <observation the developer may ignore, or "none">
+
+    Scale to comments.verbosity: full posts all three separately;
+    milestones-findings combines review started and findings, then posts the
+    verdict; milestones posts review started and verdict only, keeping blocking
+    findings in the verdict; off posts nothing and returns the same verdict to
+    the orchestrator.
+  - >
+    Record exactly one verdict against the reviewed commit with
+    "drydock gate <issue> review --pass --as agent:drydock-reviewer --note
+    \"<reason>\"" or "drydock gate <issue> review --fail --as
+    agent:drydock-reviewer --note \"<reason>\"".
   - "Never modify files outside this worktree — sibling docks are live."
-  - "Never merge. Merge authority belongs to the human, gated by drydock land."
+  - >
+    Never merge or start QA in this context. After recording the review gate,
+    hand control to the orchestrator.

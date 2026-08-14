@@ -13,7 +13,8 @@ import { resolveActor, isAgent } from '../src/commands/gate.js';
 import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
 
-const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/drydock.js');
+const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI = path.join(sourceRoot, 'bin', 'drydock.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drydock-test-'));
 const repo = path.join(tmp, 'repo');
 
@@ -159,6 +160,35 @@ ok('customise reaches the detail questions', reopened.asked.includes('Autonomy l
 ok('blank answers keep the preset value', readCfg().autonomy.level === 'full');
 ok('start is not blocked once configured', readCfg().setup.completed === true);
 
+console.log('\nrole instructions');
+const rolePaths = [
+  '.github/agents/drydock-dev.md',
+  '.github/agents/drydock-reviewer.md',
+  '.github/agents/drydock-qa.md',
+  'bmad-module/agents/drydock-dev.agent.yaml',
+  'bmad-module/agents/drydock-reviewer.agent.yaml',
+  'bmad-module/agents/drydock-qa.agent.yaml',
+];
+const roles = rolePaths.map((p) => [p, fs.readFileSync(path.join(sourceRoot, p), 'utf8')]);
+const rolesNamed = (name) => roles.filter(([p]) => p.includes(name)).map(([, text]) => text);
+ok('all six roles treat the rendered policy as authoritative', roles.every(([, text]) =>
+  text.includes('Operating policy') && text.includes('authoritative') && text.includes('drydock config show')));
+ok('all six roles require MCP-first GitHub access', roles.every(([, text]) =>
+  text.includes('GitHub MCP tools first')
+  && text.includes('copilot --add-github-mcp-toolset issues')
+  && text.includes('copilot --add-github-mcp-toolset pull_requests')));
+ok('both dev roles are plan-only before code', rolesNamed('drydock-dev').every((text) =>
+  text.includes('first output is plan-only') && text.includes('no code until the answers')));
+ok('both reviewer roles record an attributed gate', rolesNamed('drydock-reviewer').every((text) =>
+  text.includes('Drydock reviewer: review started') && text.includes('--as agent:drydock-reviewer')));
+ok('both QA roles record an attributed gate with real output', rolesNamed('drydock-qa').every((text) =>
+  text.includes('Drydock QA: QA started')
+  && text.includes('real test output')
+  && text.includes('--as agent:drydock-qa')));
+ok('dev roles hand off instead of waiting for a human gate', rolesNamed('drydock-dev').every((text) =>
+  text.includes('orchestrator')
+  && !/A human runs|stop and wait for a human|Merge authority belongs to the human/i.test(text)));
+
 dd(['init', '--force']);
 
 console.log('\nstart');
@@ -167,6 +197,14 @@ ok('exits 0', s.status === 0, s.stderr);
 const dock = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/412.json'), 'utf8'));
 ok('creates worktree', fs.existsSync(dock.worktree));
 ok('creates DOCK.md', fs.existsSync(path.join(dock.worktree, 'DOCK.md')));
+const brief = fs.readFileSync(path.join(dock.worktree, 'DOCK.md'), 'utf8');
+ok('DOCK.md contains the operating policy', brief.includes('## Operating policy'));
+ok('operating policy matches config show',
+  brief.includes('**Autonomy level:** `full`')
+  && brief.includes('**Escalation bar:** `any-ambiguity`')
+  && brief.includes('**Comment verbosity:** `full`')
+  && brief.includes('**GitHub MCP preference:** `prefer`')
+  && brief.includes('**Retry budget:** 2 gate-failure retries'));
 ok('creates branch', git(['branch', '--list', dock.branch]).length > 0);
 ok('gates start unset', Object.values(dock.gates).every((g) => g === null));
 ok('dock lives inside the repo', dock.worktree.startsWith(repo + path.sep));
@@ -184,8 +222,13 @@ ok('start excludes DOCK.md', excludeLines().includes('/DOCK.md'));
 ok('git does not see DOCK.md at all', !git(['status', '--porcelain', '-uall'], dock.worktree).includes('DOCK.md'));
 
 console.log('\nisolation');
+dd(['config', 'set', 'comments.verbosity', 'milestones']);
 dd(['start', '415']);
 const d415 = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/415.json'), 'utf8'));
+const brief415 = fs.readFileSync(path.join(d415.worktree, 'DOCK.md'), 'utf8');
+ok('the next dock receives changed comment verbosity',
+  brief415.includes('**Comment verbosity:** `milestones`'));
+dd(['config', 'set', 'comments.verbosity', 'full']);
 ok('two docks, distinct worktrees', d415.worktree !== dock.worktree);
 ok('two docks, distinct branches', d415.branch !== dock.branch);
 ok('a second dock is clean too', git(['status', '--porcelain'], d415.worktree) === '');
