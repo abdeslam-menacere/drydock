@@ -292,7 +292,10 @@ function template(relative, replacements = {}) {
 }
 
 function gitignoreBlock(docksDir) {
-  const dockEntry = docksDir.replaceAll('\\', '/').replace(/\/$/, '') + '/';
+  const normalised = docksDir.replaceAll('\\', '/').replace(/\/$/, '');
+  // This is a gitignore pattern, not a path: an unescaped '*' would ignore the
+  // whole project and blind land's untracked-file check.
+  const dockEntry = normalised.replace(/[#!*?[\]]/g, (char) => `\\${char}`).replace(/ $/, '\\ ') + '/';
   return `${GITIGNORE_MARKER}\n.drydock/tmp/\n${dockEntry}\n# <<< Drydock <<<\n`;
 }
 

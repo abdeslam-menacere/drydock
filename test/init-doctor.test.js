@@ -204,6 +204,20 @@ try {
   check(() => assert.equal(templateInstall.status, 0, templateInstall.stdout + templateInstall.stderr));
   check(() => assert.doesNotMatch(templateInstall.stdout + templateInstall.stderr, /conflict\s+/));
 
+  // The docks entry is a gitignore pattern. Metacharacters must stay literal, or
+  // the generated block would ignore the project and blind land's dirty check.
+  for (const docksDir of ['*', '#docks', '!docks', 'do?ks', 'do[ab]ks']) {
+    const patternRepo = makeRepo(`pattern-${assertions}`);
+    fs.mkdirSync(path.join(patternRepo, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(patternRepo, 'src/app.js'), 'export const a = 1;\n');
+    const applied = runIn(patternRepo, ['init', '--yes', '--docks-dir', docksDir]);
+    const ignored = spawnSync('git', ['check-ignore', 'src/app.js'], { cwd: patternRepo, encoding: 'utf8' });
+    check(() => assert.notEqual(ignored.status, 0, `docksDir ${docksDir} must not ignore project sources`));
+    const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: patternRepo, encoding: 'utf8' });
+    check(() => assert.match(dirty.stdout, /src\//, `docksDir ${docksDir} must leave untracked sources visible`));
+    check(() => assert.ok(applied.status === 0 || applied.status === 1, 'init must not crash'));
+  }
+
   const outside = path.join(scratch, 'outside');
   fs.mkdirSync(outside);
   const outsideDoctor = runIn(outside, ['doctor']);
