@@ -130,6 +130,9 @@ try {
     ['--docks-dir', '.git/worktrees'],
     ['--docks-dir', '.GIT'],
     ['--docks-dir', '.git.'],
+    ['--docks-dir', 'docks\n!secret.env'],
+    ['--docks-dir', 'docks\n*.js'],
+    ['--docks-dir', 'docks\r!secret.env'],
   ]) {
     const cleanRepo = makeRepo(`invalid-${assertions}`);
     const cleanBefore = snapshot(cleanRepo);

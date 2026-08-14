@@ -252,7 +252,9 @@ function safeBranch(value) {
 }
 
 function safeRelative(value, root) {
-  if (typeof value !== 'string' || !value || path.isAbsolute(value) || value.includes('\0')) return false;
+  if (typeof value !== 'string' || !value || path.isAbsolute(value)) return false;
+  // This value is written verbatim into .gitignore, so a newline would inject its own rule.
+  if (/[\u0000-\u001f\u007f]/.test(value)) return false;
   // Compared as resolved paths so every spelling of the root ('.', './', './/') is caught.
   const relative = path.relative(root, path.resolve(root, value));
   if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`)) return false;
