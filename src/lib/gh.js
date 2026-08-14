@@ -36,6 +36,31 @@ export function api(endpoint, cwd) {
   return tryRun('gh', ['api', endpoint], { cwd });
 }
 
+const unavailable = () => ({ ok: false, out: '', err: 'gh not available', code: null, skipped: true });
+
+/** Post a comment on an issue. Degrades silently when gh is absent. */
+export function comment(number, body, cwd) {
+  if (!available()) return unavailable();
+  return tryRun('gh', ['issue', 'comment', String(number), '--body', body], { cwd });
+}
+
+const MERGE_FLAG = { squash: '--squash', merge: '--merge', rebase: '--rebase' };
+
+/**
+ * Merge a pull request, identified by branch, number or URL. `auto` queues the
+ * merge for when the repository's required checks pass instead of merging now.
+ */
+export function mergePr(ref, { method = 'squash', auto = true, deleteBranch = true } = {}, cwd) {
+  if (!available()) return unavailable();
+  const flag = MERGE_FLAG[method];
+  if (!flag) return { ok: false, out: '', err: `unknown merge method: ${method}`, code: null };
+
+  const args = ['pr', 'merge', String(ref), flag];
+  if (auto) args.push('--auto');
+  if (deleteBranch) args.push('--delete-branch');
+  return tryRun('gh', args, { cwd });
+}
+
 /** Does the repo allow auto-merge? null when it cannot be determined. */
 export function autoMergeEnabled(cwd) {
   const r = tryRun('gh', ['repo', 'view', '--json', 'autoMergeAllowed', '-q', '.autoMergeAllowed'], { cwd });

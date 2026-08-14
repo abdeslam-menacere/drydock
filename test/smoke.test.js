@@ -8,9 +8,13 @@ import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { pendingQuestions } from '../src/lib/config.js';
 import { QUESTIONS, SCHEMA_VERSION } from '../src/lib/questions.js';
+import { parseArgs } from '../src/lib/args.js';
+import { resolveActor, isAgent } from '../src/commands/gate.js';
+import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
 
-const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/drydock.js');
+const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CLI = path.join(sourceRoot, 'bin', 'drydock.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drydock-test-'));
 const repo = path.join(tmp, 'repo');
 
@@ -23,6 +27,14 @@ const git = (args, cwd = repo) => execFileSync('git', args, { cwd, encoding: 'ut
 const dd = (args, cwd = repo) => spawnSync('node', [CLI, ...args], { cwd, encoding: 'utf8' });
 const ddEnv = (args, env, cwd = repo) =>
   spawnSync('node', [CLI, ...args], { cwd, encoding: 'utf8', env: { ...process.env, ...env } });
+// Run with every actor source blanked, so a real DRYDOCK_ACTOR or USERNAME in
+// the developer's own shell cannot make an attribution test pass by accident.
+// Blanked rather than deleted: Windows re-injects USERNAME into a child that
+// omits it, which silently defeated the "nothing identifies the actor" case.
+const ddBare = (args, extra = {}, cwd = repo) => {
+  const env = { ...process.env, DRYDOCK_ACTOR: '', USER: '', USERNAME: '' };
+  return spawnSync('node', [CLI, ...args], { cwd, encoding: 'utf8', env: { ...env, ...extra } });
+};
 const cfgFile = path.join(repo, 'drydock.config.json');
 const readCfg = () => JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
 const gitignore = () => fs.readFileSync(path.join(repo, '.gitignore'), 'utf8');
@@ -149,6 +161,35 @@ ok('customise reaches the detail questions', reopened.asked.includes('Autonomy l
 ok('blank answers keep the preset value', readCfg().autonomy.level === 'full');
 ok('start is not blocked once configured', readCfg().setup.completed === true);
 
+console.log('\nrole instructions');
+const rolePaths = [
+  '.github/agents/drydock-dev.md',
+  '.github/agents/drydock-reviewer.md',
+  '.github/agents/drydock-qa.md',
+  'bmad-module/agents/drydock-dev.agent.yaml',
+  'bmad-module/agents/drydock-reviewer.agent.yaml',
+  'bmad-module/agents/drydock-qa.agent.yaml',
+];
+const roles = rolePaths.map((p) => [p, fs.readFileSync(path.join(sourceRoot, p), 'utf8')]);
+const rolesNamed = (name) => roles.filter(([p]) => p.includes(name)).map(([, text]) => text);
+ok('all six roles treat the rendered policy as authoritative', roles.every(([, text]) =>
+  text.includes('Operating policy') && text.includes('authoritative') && text.includes('drydock config show')));
+ok('all six roles require MCP-first GitHub access', roles.every(([, text]) =>
+  text.includes('GitHub MCP tools first')
+  && text.includes('copilot --add-github-mcp-toolset issues')
+  && text.includes('copilot --add-github-mcp-toolset pull_requests')));
+ok('both dev roles are plan-only before code', rolesNamed('drydock-dev').every((text) =>
+  text.includes('first output is plan-only') && text.includes('no code until the answers')));
+ok('both reviewer roles record an attributed gate', rolesNamed('drydock-reviewer').every((text) =>
+  text.includes('Drydock reviewer: review started') && text.includes('--as agent:drydock-reviewer')));
+ok('both QA roles record an attributed gate with real output', rolesNamed('drydock-qa').every((text) =>
+  text.includes('Drydock QA: QA started')
+  && text.includes('real test output')
+  && text.includes('--as agent:drydock-qa')));
+ok('dev roles hand off instead of waiting for a human gate', rolesNamed('drydock-dev').every((text) =>
+  text.includes('orchestrator')
+  && !/A human runs|stop and wait for a human|Merge authority belongs to the human/i.test(text)));
+
 dd(['init', '--yes', '--force']);
 
 console.log('\nstart');
@@ -157,6 +198,14 @@ ok('exits 0', s.status === 0, s.stderr);
 const dock = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/412.json'), 'utf8'));
 ok('creates worktree', fs.existsSync(dock.worktree));
 ok('creates DOCK.md', fs.existsSync(path.join(dock.worktree, 'DOCK.md')));
+const brief = fs.readFileSync(path.join(dock.worktree, 'DOCK.md'), 'utf8');
+ok('DOCK.md contains the operating policy', brief.includes('## Operating policy'));
+ok('operating policy matches config show',
+  brief.includes('**Autonomy level:** `full`')
+  && brief.includes('**Escalation bar:** `any-ambiguity`')
+  && brief.includes('**Comment verbosity:** `full`')
+  && brief.includes('**GitHub MCP preference:** `prefer`')
+  && brief.includes('**Retry budget:** 2 gate-failure retries'));
 ok('creates branch', git(['branch', '--list', dock.branch]).length > 0);
 ok('gates start unset', Object.values(dock.gates).every((g) => g === null));
 ok('dock lives inside the repo', dock.worktree.startsWith(repo + path.sep));
@@ -174,8 +223,13 @@ ok('start excludes DOCK.md', excludeLines().includes('/DOCK.md'));
 ok('git does not see DOCK.md at all', !git(['status', '--porcelain', '-uall'], dock.worktree).includes('DOCK.md'));
 
 console.log('\nisolation');
+dd(['config', 'set', 'comments.verbosity', 'milestones']);
 dd(['start', '415']);
 const d415 = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/415.json'), 'utf8'));
+const brief415 = fs.readFileSync(path.join(d415.worktree, 'DOCK.md'), 'utf8');
+ok('the next dock receives changed comment verbosity',
+  brief415.includes('**Comment verbosity:** `milestones`'));
+dd(['config', 'set', 'comments.verbosity', 'full']);
 ok('two docks, distinct worktrees', d415.worktree !== dock.worktree);
 ok('two docks, distinct branches', d415.branch !== dock.branch);
 ok('a second dock is clean too', git(['status', '--porcelain'], d415.worktree) === '');
@@ -254,6 +308,125 @@ ok('CI accepts a fresh receipt', evaluate(dry.stdout, head).length === 0, evalua
 ok('CI fails a stale receipt', evaluate(dry.stdout, 'f'.repeat(40)).some((p) => p.includes('STALE')));
 ok('CI fails a gate that did not pass', evaluate(dry.stdout.replace('✅ pass', '❌ fail'), head).length > 0);
 ok('CI fails a missing receipt', evaluate('Closes #1\n\nNo receipt here.\n', head).length > 0);
+
+console.log('\nflag discipline');
+// Args used to be matched with `includes`, so anything unrecognised was thrown
+// away and the command carried on. `--as` was swallowed whole: the verdict went
+// in under the human's username and the CLI exited 0 saying it had worked.
+const gates415 = () => JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/415.json'), 'utf8')).gates;
+ok('parser collects an undeclared flag', parseArgs(['--pas'], { flags: ['--pass'] }).unknown[0] === '--pas');
+ok('parser reads an option value', parseArgs(['--as', 'x'], { options: ['--as'] }).options['--as'] === 'x');
+ok('parser accepts --opt=value', parseArgs(['--as=x'], { options: ['--as'] }).options['--as'] === 'x');
+ok('parser reports an option with no value', parseArgs(['--as'], { options: ['--as'] }).missing[0] === '--as');
+ok('parser refuses to eat the next flag as a value',
+  parseArgs(['--as', '--pass'], { flags: ['--pass'], options: ['--as'] }).missing[0] === '--as');
+
+const typo = dd(['gate', '415', 'review', '--pass', '--pas']);
+ok('gate rejects an unknown flag', typo.status !== 0, typo.stdout + typo.stderr);
+ok('and names it', (typo.stdout + typo.stderr).includes('--pas'));
+ok('a rejected gate records nothing', gates415().review === null);
+ok('gate rejects --as with no value', dd(['gate', '415', 'review', '--pass', '--as']).status !== 0);
+ok('gate rejects a blank --as', dd(['gate', '415', 'review', '--pass', '--as', '  ']).status !== 0);
+ok('gate rejects --as swallowing the next flag', dd(['gate', '415', 'review', '--as', '--pass']).status !== 0);
+ok('gate rejects --note with no value', dd(['gate', '415', 'review', '--pass', '--note']).status !== 0);
+
+// A swallowed --dry-run turns a preview into a real push, a real PR, and a
+// PR with auto-merge armed on it. Assert on the rejection message, not just a
+// non-zero exit: without the guard this push fails anyway for want of a remote,
+// so the exit code alone would pass whether the flag is checked or not.
+const landTypo = dd(['land', '412', '--dryrun']);
+const landTypoOut = landTypo.stdout + landTypo.stderr;
+ok('land rejects a mistyped --dry-run', landTypo.status !== 0, landTypoOut);
+ok('and names the flag instead of pushing',
+  landTypoOut.includes('--dryrun') && !landTypoOut.includes('Pushed'), landTypoOut);
+
+console.log('\ngate attribution');
+ok('--as beats every environment source',
+  resolveActor('agent:x', { DRYDOCK_ACTOR: 'a', USER: 'b', USERNAME: 'c' }) === 'agent:x');
+ok('DRYDOCK_ACTOR beats USER', resolveActor(undefined, { DRYDOCK_ACTOR: 'a', USER: 'b' }) === 'a');
+ok('USER beats USERNAME', resolveActor(undefined, { USER: 'b', USERNAME: 'c' }) === 'b');
+ok('nothing set resolves to unknown', resolveActor(undefined, {}) === 'unknown');
+ok('a blank source is skipped, not recorded',
+  resolveActor(undefined, { DRYDOCK_ACTOR: '   ', USER: 'b' }) === 'b');
+ok('an agent: prefix marks an agent verdict', isAgent('agent:drydock-reviewer'));
+ok('a bare username is not an agent', !isAgent('ci-bot'));
+
+const asFlag = dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--note', 'diff only']);
+ok('gate with --as exits 0', asFlag.status === 0, asFlag.stdout + asFlag.stderr);
+ok('--as records that exact actor', gates415().review.by === 'agent:drydock-reviewer');
+ok('and keeps the note', gates415().review.note === 'diff only');
+
+// The failure this flag exists for: DRYDOCK_ACTOR persists across commands in a
+// shared shell, and once nearly filed an agent's verdict under a human's name.
+ddEnv(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer'], { DRYDOCK_ACTOR: 'human-alice' });
+ok('--as beats a leaked DRYDOCK_ACTOR', gates415().review.by === 'agent:drydock-reviewer');
+ddEnv(['gate', '415', 'review', '--pass'], { DRYDOCK_ACTOR: 'human-alice' });
+ok('DRYDOCK_ACTOR still works with no --as', gates415().review.by === 'human-alice');
+ddBare(['gate', '415', 'review', '--pass'], { USERNAME: 'ci-bot' });
+ok('falls back to the shell user', gates415().review.by === 'ci-bot');
+ddBare(['gate', '415', 'review', '--pass']);
+ok('falls back to unknown when nothing identifies the actor', gates415().review.by === 'unknown');
+
+console.log('\nreceipt attribution');
+dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--note', 'diff only']);
+ddBare(['gate', '415', 'qa', '--pass', '--note', 'suite green'], { USERNAME: 'ci-bot' });
+const mixed = dd(['land', '415', '--dry-run']);
+ok('a mixed receipt renders', mixed.status === 0, mixed.stdout + mixed.stderr);
+ok('marks the agent verdict', /\|\s*🤖 agent:drydock-reviewer\s*\|/.test(mixed.stdout), mixed.stdout);
+ok('marks the human verdict', /\|\s*👤 ci-bot\s*\|/.test(mixed.stdout), mixed.stdout);
+ok('says what the marks mean', mixed.stdout.includes('recorded by an agent'));
+// Attribution must not cost us the CI contract: the workflow parses gate,
+// verdict and SHA, and the By column has to stay out of its way.
+ok("workflow's row regex still parses a mixed receipt", [...mixed.stdout.matchAll(ROW())].length === 2);
+const head415 = git(['rev-parse', 'HEAD'], d415.worktree);
+ok('CI accepts a mixed receipt', evaluate(mixed.stdout, head415).length === 0,
+  evaluate(mixed.stdout, head415).join('; '));
+ok('an all-human receipt says so', dry.stdout.includes('every verdict recorded by a human'));
+
+console.log('\ncomment policy');
+ok('full narrates lifecycle', wantsLifecycle({ comments: { enabled: true, verbosity: 'full', cliLifecycle: true } }));
+ok('milestones-findings narrates lifecycle', wantsLifecycle({ comments: { verbosity: 'milestones-findings' } }));
+ok('milestones narrates lifecycle', wantsLifecycle({ comments: { verbosity: 'milestones' } }));
+ok('off says nothing', !wantsLifecycle({ comments: { verbosity: 'off' } }));
+ok('comments.enabled false overrides verbosity', !wantsLifecycle({ comments: { enabled: false, verbosity: 'full' } }));
+ok('cliLifecycle false silences the CLI', !wantsLifecycle({ comments: { cliLifecycle: false, verbosity: 'full' } }));
+ok('an unreadable verbosity fails open, not silent', wantsLifecycle({ comments: { verbosity: '??' } }));
+ok('a missing comments block fails open', wantsLifecycle({}));
+
+// The scratch repo has no GitHub remote, so every comment here genuinely fails.
+// That is the point: the issue is the audit trail, not the source of truth, and
+// a comment that cannot be posted must never fail the command that made it.
+const unpostable = lifecycle({ comments: { verbosity: 'full' } }, 999999, 'body', repo);
+ok('a comment that cannot be posted returns instead of throwing', unpostable.posted === false);
+ok('and says why', ['gh-unavailable', 'failed', 'threw'].includes(unpostable.reason), unpostable.reason);
+let propagated = false, blew;
+try { blew = lifecycle({ comments: { verbosity: 'full' } }, { toString() { throw new Error('boom'); } }, 'b', repo); }
+catch { propagated = true; }
+ok('a comment that blows up never propagates', !propagated && blew.posted === false);
+ok('off skips the call entirely', lifecycle({ comments: { verbosity: 'off' } }, 999999, 'b', repo).reason === 'policy');
+
+dd(['config', 'set', 'comments.verbosity', 'off']);
+const quiet = dd(['gate', '415', 'qa', '--pass']);
+ok('a gate exits 0 with comments off', quiet.status === 0, quiet.stdout + quiet.stderr);
+ok('and still records the verdict', gates415().qa.verdict === 'pass');
+ok('and posts nothing', !quiet.stdout.includes('Commented on'));
+dd(['config', 'set', 'comments.verbosity', 'full']);
+const loud = dd(['gate', '415', 'qa', '--pass']);
+ok('a gate exits 0 when the comment fails', loud.status === 0, loud.stdout + loud.stderr);
+ok('and still records the verdict', gates415().qa.verdict === 'pass');
+
+console.log('\nrun');
+const rr = dd(['run', '415']);
+ok('run exits 0', rr.status === 0, rr.stdout + rr.stderr);
+ok('prints the gate commands', rr.stdout.includes(`drydock gate 415 review`));
+ok('renders this repo\'s gate order', rr.stdout.includes('Gates, in order: review → qa'));
+ok('tells the agent to attribute itself', rr.stdout.includes('--as agent:drydock-reviewer'));
+ok('offers no bypass', !/--skip-gates|--force/.test(rr.stdout));
+ok('run rejects an unknown flag', dd(['run', '415', '--yolo']).status !== 0);
+ok('run needs an issue number', dd(['run']).status !== 0);
+dd(['config', 'set', 'triggers.cliRun', 'false']);
+ok('a disabled trigger refuses', dd(['run', '415']).status !== 0);
+dd(['config', 'set', 'triggers.cliRun', 'true']);
 
 console.log('\ndirty worktree');
 // Excluding the brief must not blunt the real check: uncommitted work of any

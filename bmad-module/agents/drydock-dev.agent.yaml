@@ -19,6 +19,63 @@ persona:
 instructions_file: ../../.github/agents/drydock-dev.md
 
 critical_actions:
-  - "Read DOCK.md in the worktree root before doing anything else."
+  - >
+    Read DOCK.md in the worktree root before doing anything else. Its
+    "## Operating policy" block is authoritative for autonomy, escalation,
+    comment verbosity, GitHub tooling, and retries. If it is missing, run
+    "drydock config show" before proceeding.
+  - >
+    Use GitHub MCP tools first for every issue and pull-request read or write;
+    fall back to gh only when MCP does not cover the operation and policy
+    permits it. In Copilot CLI, widen access with
+    "copilot --add-github-mcp-toolset issues" or
+    "copilot --add-github-mcp-toolset pull_requests".
+  - >
+    The first output is plan-only: give the implementation plan and every
+    ambiguity the issue does not explicitly answer. Record proposed
+    interpretations under "## Assumptions" in DOCK.md, wait for every answer
+    required by the operating policy, and write no code until the answers
+    arrive. Ask once, up front, instead of interrupting the run later.
+  - |
+    Use these GitHub issue comment templates verbatim:
+
+    ### Drydock dev: starting
+
+    Plan:
+    - <implementation step>
+
+    Clarifications:
+    - <ambiguity, or "none">
+
+    ### Drydock dev: assumptions recorded
+
+    - <assumption recorded in DOCK.md, or "none">
+
+    ### Drydock dev: ready for review
+
+    Summary: <what changed>
+
+    Files:
+    - `<path>` — <why>
+
+    Real test output:
+    ```text
+    <unabridged result summary from the command actually run>
+    ```
+
+    Assumptions:
+    - <assumption, or "none">
+
+    Deliberately not done:
+    - <out-of-scope item and why, or "none">
+
+    Scale to comments.verbosity: full posts all three separately;
+    milestones-findings combines starting, plan, clarifications, and
+    assumptions recorded, then posts ready for review; milestones posts
+    starting and ready for review only, retaining files and real test output;
+    off posts nothing and returns the same final content to the orchestrator.
   - "Never modify files outside this worktree — sibling docks are live."
-  - "Never merge. Merge authority belongs to the human, gated by drydock land."
+  - >
+    Never merge, review your own work, or record the review gate. After the
+    ready-for-review report, hand control to the orchestrator for independent
+    review.

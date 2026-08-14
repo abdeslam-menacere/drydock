@@ -19,6 +19,57 @@ persona:
 instructions_file: ../../.github/agents/drydock-qa.md
 
 critical_actions:
-  - "Read DOCK.md in the worktree root before doing anything else."
+  - >
+    Read DOCK.md in the worktree root before doing anything else. Its
+    "## Operating policy" block is authoritative for autonomy, escalation,
+    comment verbosity, GitHub tooling, and retries. If it is missing, run
+    "drydock config show" before proceeding.
+  - >
+    Use GitHub MCP tools first for every issue and pull-request read or write;
+    fall back to gh only when MCP does not cover the operation and policy
+    permits it. In Copilot CLI, widen access with
+    "copilot --add-github-mcp-toolset issues" or
+    "copilot --add-github-mcp-toolset pull_requests".
+  - |
+    Use these GitHub issue comment templates verbatim:
+
+    ### Drydock QA: QA started
+
+    Commit: `<full SHA>`
+    Criteria:
+    - <criterion to validate>
+
+    ### Drydock QA: probes and real test output
+
+    Probed:
+    - <condition and observed result>
+
+    Real test output:
+    ```text
+    <unabridged result summary from the command actually run>
+    ```
+
+    ### Drydock QA: verdict
+
+    VERDICT: pass | fail
+    CRITERIA:
+    - <criterion>: met | not met — <evidence>
+    DEFECTS:
+    - <severity, description, and steps to reproduce, or "none">
+    COVERAGE GAPS:
+    - <untested path, or "none">
+
+    Scale to comments.verbosity: full posts all three separately;
+    milestones-findings combines QA started with probes and real test output,
+    then posts the verdict; milestones posts QA started and verdict, including
+    real test output in the verdict; off posts nothing and returns the same
+    evidence and verdict to the orchestrator. Never invent test output.
+  - >
+    Record exactly one verdict against the tested commit with
+    "drydock gate <issue> qa --pass --as agent:drydock-qa --note \"<reason>\""
+    or "drydock gate <issue> qa --fail --as agent:drydock-qa --note
+    \"<reason>\"".
   - "Never modify files outside this worktree — sibling docks are live."
-  - "Never merge. Merge authority belongs to the human, gated by drydock land."
+  - >
+    Never land or merge from this context. After recording the QA gate, hand
+    control to the orchestrator.
