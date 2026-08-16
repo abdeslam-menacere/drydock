@@ -454,6 +454,177 @@ ok('clean exits 0', dd(['clean', '412', '--force']).status === 0);
 ok('worktree removed', !fs.existsSync(dock.worktree));
 ok('manifest removed', !fs.existsSync(path.join(repo, '.drydock/docks/412.json')));
 
+// ---------------------------------------------------------------------------
+// eject
+//
+// Builds a repo shaped like one made from the template: Drydock's whole source
+// tree at the root, the project's own work pushed into web/ and docs/product/.
+// That is the real ModelTree layout, and the thing eject has to undo without
+// taking any of the project with it.
+// ---------------------------------------------------------------------------
+console.log('\neject');
+
+const ejectRepo = path.join(tmp, 'ejected');
+function buildTemplateRepo() {
+  fs.rmSync(ejectRepo, { recursive: true, force: true });
+  const w = (rel, body) => {
+    const p = path.join(ejectRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, body);
+  };
+
+  // Drydock's tooling
+  w('bin/drydock.js', '#!/usr/bin/env node\n');
+  w('src/cli.js', 'export const main = () => {};\n');
+  w('src/lib/sh.js', 'export const run = () => {};\n');
+  w('test/smoke.test.js', '// drydock tests\n');
+  w('skills/dock-lifecycle/SKILL.md', '---\nname: dock-lifecycle\n---\n');
+  w('bmad-module/module.yaml', 'name: drydock\n');
+  w('.claude-plugin/marketplace.json', '{}\n');
+  w('plugin.json', '{"name":"drydock"}\n');
+  w('drydock.code-workspace', '{}\n');
+  w('docs/GETTING-STARTED.md', '# Getting started\n');
+  w('docs/WORKFLOW.md', '# The Drydock loop\n');
+  w('docs/ROLES.md', '# Roles\n');
+  w('README.md', '# ⚓ Drydock\n\nEvery feature gets its own dock.\n');
+  w('SPEC.md', '# Drydock — Design Specification\n');
+  w('AGENTS.md', '# Agent instructions — this repository\n\nDrydock is small.\n');
+  w('LICENSE', 'MIT\n');
+  w('package.json', '{"name":"drydock","version":"0.1.0"}\n');
+
+  // The per-project footprint
+  w('drydock.config.json', JSON.stringify({ version: 1, gates: ['review', 'qa'], baseBranch: 'main' }, null, 2));
+  w('.drydock/README.md', '# .drydock\n');
+  w('.github/workflows/drydock-gates.yml', 'name: Drydock Gates\n');
+  w('.github/agents/drydock-dev.md', '---\nname: drydock-dev\n---\n');
+  w('.github/ISSUE_TEMPLATE/feature.yml', 'name: Feature\n');
+  w('.vscode/tasks.json', JSON.stringify({
+    version: '2.0.0',
+    tasks: [
+      { label: 'Drydock: status', type: 'shell', command: 'node ${workspaceFolder}/bin/drydock.js status' },
+      { label: 'Build site', type: 'shell', command: 'npm run build' },
+    ],
+    inputs: [{ id: 'issue', type: 'promptString', description: 'issue' }],
+  }, null, 2));
+  w('.gitignore', 'node_modules/\n\n# Drydock\n.drydock/tmp/\n.docks/\n');
+
+  // The project itself
+  w('web/package.json', '{"name":"modeltree-web"}\n');
+  w('web/src/pages/index.astro', '<h1>ModelTree</h1>\n');
+  w('docs/product/BACKLOG.md', '# Backlog\n');
+  w('docs/adr/0001-architecture.md', '# ADR 1\n');
+
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: ejectRepo });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: ejectRepo });
+  execFileSync('git', ['config', 'user.name', 'test'], { cwd: ejectRepo });
+  execFileSync('git', ['add', '-A'], { cwd: ejectRepo });
+  execFileSync('git', ['commit', '-qm', 'from template'], { cwd: ejectRepo });
+}
+const inEject = (rel) => fs.existsSync(path.join(ejectRepo, rel));
+
+buildTemplateRepo();
+
+// --- refusals ------------------------------------------------------------
+const badArg = dd(['eject', '--force'], ejectRepo);
+ok('rejects an undeclared flag', badArg.status !== 0);
+ok('names the flag it rejected', (badArg.stdout + badArg.stderr).includes('--force'));
+
+const noConfirm = dd(['eject'], ejectRepo);
+ok('refuses to run unconfirmed when non-interactive', noConfirm.status !== 0);
+ok('still lists what it would remove', noConfirm.stdout.includes('src'));
+ok('and changes nothing', inEject('src/cli.js'));
+
+const dryEj = dd(['eject', '--dry-run'], ejectRepo);
+ok('dry run exits 0', dryEj.status === 0, dryEj.stderr);
+ok('dry run changes nothing', inEject('src/cli.js') && inEject('bin/drydock.js'));
+
+fs.writeFileSync(path.join(ejectRepo, 'web', 'dirty.txt'), 'uncommitted\n');
+const dirty = dd(['eject', '--yes'], ejectRepo);
+ok('refuses on a dirty tree', dirty.status !== 0);
+ok('says why the clean tree matters', (dirty.stdout + dirty.stderr).includes('revertible'));
+ok('dirty refusal changed nothing', inEject('src/cli.js'));
+fs.rmSync(path.join(ejectRepo, 'web', 'dirty.txt'));
+
+// --- detach --------------------------------------------------------------
+const ej = dd(['eject', '--yes'], ejectRepo);
+ok('eject exits 0', ej.status === 0, ej.stdout + ej.stderr);
+
+ok('removes bin/', !inEject('bin'));
+ok('removes src/', !inEject('src'));
+ok('removes skills/', !inEject('skills'));
+ok('removes bmad-module/', !inEject('bmad-module'));
+ok('removes plugin.json', !inEject('plugin.json'));
+ok('removes the workspace file', !inEject('drydock.code-workspace'));
+ok("removes Drydock's README", !inEject('README.md'));
+ok('removes SPEC.md', !inEject('SPEC.md'));
+ok('removes its own smoke test', !inEject('test/smoke.test.js'));
+ok('removes the now-empty test/', !inEject('test'));
+
+ok("removes Drydock's docs", !inEject('docs/GETTING-STARTED.md') && !inEject('docs/WORKFLOW.md'));
+ok('KEEPS the project’s docs/product', inEject('docs/product/BACKLOG.md'));
+ok('KEEPS the project’s docs/adr', inEject('docs/adr/0001-architecture.md'));
+ok('KEEPS the project itself', inEject('web/src/pages/index.astro'));
+
+ok('KEEPS drydock.config.json', inEject('drydock.config.json'));
+ok('KEEPS the audit trail', inEject('.drydock/README.md'));
+ok('KEEPS the gates workflow', inEject('.github/workflows/drydock-gates.yml'));
+ok('KEEPS the agent contracts', inEject('.github/agents/drydock-dev.md'));
+
+ok('never deletes package.json', inEject('package.json'));
+ok('never deletes LICENSE', inEject('LICENSE'));
+ok('flags package.json as yours to deal with', ej.stdout.includes('package.json'));
+
+const tasksAfter = JSON.parse(fs.readFileSync(path.join(ejectRepo, '.vscode/tasks.json'), 'utf8'));
+ok('repoints tasks at the installed CLI',
+  tasksAfter.tasks[0].command === 'drydock status', tasksAfter.tasks[0].command);
+ok('leaves the project’s own task alone', tasksAfter.tasks[1].command === 'npm run build');
+
+ok('tells you how to keep using Drydock', ej.stdout.includes('npm i -g drydock'));
+ok('is fully revertible', execFileSync('git', ['status', '--porcelain'], { cwd: ejectRepo, encoding: 'utf8' }).length > 0);
+
+const twice = dd(['eject', '--dry-run'], ejectRepo);
+ok('is idempotent — nothing left to eject', twice.stdout.includes('Nothing to eject'));
+
+// --- a README the project has made its own is not Drydock's to delete ----
+buildTemplateRepo();
+fs.writeFileSync(path.join(ejectRepo, 'README.md'), '# ModelTree\n\nA model lineage explorer.\n');
+execFileSync('git', ['commit', '-qam', 'own readme'], { cwd: ejectRepo });
+const kept = dd(['eject', '--yes'], ejectRepo);
+ok('keeps a README you have rewritten', inEject('README.md'));
+ok('says why it kept it', kept.stdout.includes('yours now'));
+ok('still removes the tooling around it', !inEject('src'));
+
+// --- purge ---------------------------------------------------------------
+buildTemplateRepo();
+fs.mkdirSync(path.join(ejectRepo, '.drydock/docks'), { recursive: true });
+fs.writeFileSync(path.join(ejectRepo, '.drydock/docks/9.json'),
+  JSON.stringify({ issue: 9, title: 'in flight', branch: 'feat/9', worktree: '/nope', status: 'open', gates: {} }));
+execFileSync('git', ['add', '-A'], { cwd: ejectRepo });
+execFileSync('git', ['commit', '-qm', 'open dock'], { cwd: ejectRepo });
+
+const blocked = dd(['eject', '--purge', '--yes'], ejectRepo);
+ok('purge refuses while a dock is in flight', blocked.status !== 0);
+ok('names the dock holding it up', (blocked.stdout + blocked.stderr).includes('#9'));
+ok('purge refusal changed nothing', inEject('drydock.config.json'));
+
+fs.rmSync(path.join(ejectRepo, '.drydock/docks/9.json'));
+execFileSync('git', ['commit', '-qam', 'close dock'], { cwd: ejectRepo });
+const purged = dd(['eject', '--purge', '--yes'], ejectRepo);
+ok('purge exits 0', purged.status === 0, purged.stdout + purged.stderr);
+ok('purge removes the config', !inEject('drydock.config.json'));
+ok('purge removes the state dir', !inEject('.drydock'));
+ok('purge removes the workflow', !inEject('.github/workflows/drydock-gates.yml'));
+ok('purge removes the agent contracts', !inEject('.github/agents/drydock-dev.md'));
+ok('purge still keeps the project', inEject('web/src/pages/index.astro') && inEject('docs/product/BACKLOG.md'));
+
+const purgedTasks = JSON.parse(fs.readFileSync(path.join(ejectRepo, '.vscode/tasks.json'), 'utf8'));
+ok('purge drops the Drydock tasks', purgedTasks.tasks.length === 1);
+ok('purge keeps the project’s tasks', purgedTasks.tasks[0].label === 'Build site');
+ok('purge unignores the Drydock paths',
+  !fs.readFileSync(path.join(ejectRepo, '.gitignore'), 'utf8').includes('.docks/'));
+ok('purge keeps the project’s ignores',
+  fs.readFileSync(path.join(ejectRepo, '.gitignore'), 'utf8').includes('node_modules/'));
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

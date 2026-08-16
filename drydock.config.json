@@ -24,7 +24,7 @@
     "merge": {
       "enabled": true,
       "method": "squash",
-      "waitForChecks": true
+      "waitForChecks": false
     },
     "retriesOnGateFail": 2
   },

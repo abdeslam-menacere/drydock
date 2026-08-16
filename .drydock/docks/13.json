@@ -1,0 +1,29 @@
+{
+  "issue": 13,
+  "title": "issue-13",
+  "url": "",
+  "branch": "feat/13-issue-13",
+  "worktree": "C:\\workspace\\drydock\\.docks\\13-issue-13",
+  "base": "main",
+  "agent": "copilot",
+  "createdAt": "2026-08-13T13:33:06.481Z",
+  "gates": {
+    "review": {
+      "verdict": "pass",
+      "sha": "f8a6d35e2fea729ff59a7c193f0bcd4e0a3be738",
+      "note": "Root/.git bypass closed structurally via path resolution; 22 spellings rejected with no writes, valid values still install. Tests provably fail against prior impl. No-clobber, injection and literal-gate contracts verified. 169 assertions pass.",
+      "by": "agent:reviewer",
+      "at": "2026-08-13T16:09:32.982Z"
+    },
+    "qa": {
+      "verdict": "pass",
+      "sha": "f8a6d35e2fea729ff59a7c193f0bcd4e0a3be738",
+      "note": "All acceptance criteria met with executed evidence. 30/30 invalid inputs write nothing; 21 root/.git spellings rejected; packaging guard mutation-proven; project-owned files byte-identical across 12-file hostile repo and 9 tasks.json shapes; lifecycle and staleness regress clean. One trivial Windows-name defect, fails loudly, no damage.",
+      "by": "agent:qa",
+      "at": "2026-08-13T16:23:30.696Z"
+    }
+  },
+  "status": "landed",
+  "pr": "https://github.com/abmenace_microsoft/drydock/pull/16",
+  "landedAt": "2026-08-14T00:26:13.695Z"
+}

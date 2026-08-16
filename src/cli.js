@@ -6,6 +6,7 @@ import gate from './commands/gate.js';
 import land from './commands/land.js';
 import status from './commands/status.js';
 import clean from './commands/clean.js';
+import eject from './commands/eject.js';
 import { log } from './lib/log.js';
 
 const VERSION = '0.1.0';
@@ -19,6 +20,7 @@ const COMMANDS = {
   gate:   [gate,   'Record a gate verdict, bound to the current commit'],
   land:   [land,   'Verify gates, push, and open the pull request'],
   clean:  [clean,  'Remove a dock: worktree, branch, manifest'],
+  eject:  [eject,  'Remove Drydock’s tooling from this repo (--purge removes all of it)'],
 };
 
 export function main(argv) {
