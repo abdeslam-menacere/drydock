@@ -27,6 +27,13 @@ import * as git from '../lib/git.js';
 /** How the template's VS Code tasks invoke the CLI they ship alongside. */
 const VENDORED_CLI = /node \$\{workspaceFolder\}\/bin\/drydock\.js/;
 
+/**
+ * The template's test task runs Drydock's *own* suite. Repointing it is not
+ * enough — the file it names is one of the things being deleted, so the task
+ * has to go entirely or it becomes a default test action that always fails.
+ */
+const VENDORED_TESTS = /node \$\{workspaceFolder\}\/test\/smoke\.test\.js/;
+
 /** Drydock's own implementation. Never a consuming project's. */
 const TOOLING = [
   'bin',
@@ -177,9 +184,11 @@ function buildPlan(root, purge) {
     // The tasks call `node ${workspaceFolder}/bin/drydock.js`, which this very
     // command is about to delete. Repoint them at the installed CLI — but only
     // while they still point at ./bin, so a second run has nothing left to do.
-    if (exists('.vscode/tasks.json')
-      && VENDORED_CLI.test(fs.readFileSync(path.join(root, '.vscode/tasks.json'), 'utf8'))) {
-      rewrite.push({ file: '.vscode/tasks.json', how: 'repoint' });
+    if (exists('.vscode/tasks.json')) {
+      const src = fs.readFileSync(path.join(root, '.vscode/tasks.json'), 'utf8');
+      if (VENDORED_CLI.test(src) || VENDORED_TESTS.test(src)) {
+        rewrite.push({ file: '.vscode/tasks.json', how: 'repoint' });
+      }
     }
   }
 
@@ -252,11 +261,24 @@ function apply(plan, root) {
   }
 }
 
-/** `node ${workspaceFolder}/bin/drydock.js x` → `drydock x`. */
+/**
+ * `node ${workspaceFolder}/bin/drydock.js x` → `drydock x`, and drop the task
+ * that ran Drydock's own test suite.
+ *
+ * The repoint is a string replace so comments and formatting survive; the drop
+ * needs the document parsed, so it is only paid for when such a task exists.
+ */
 function repointTasks(root) {
   const p = path.join(root, '.vscode/tasks.json');
   const src = fs.readFileSync(p, 'utf8');
-  fs.writeFileSync(p, src.replace(new RegExp(VENDORED_CLI.source, 'g'), 'drydock'));
+  const repointed = src.replace(new RegExp(VENDORED_CLI.source, 'g'), 'drydock');
+
+  if (!VENDORED_TESTS.test(repointed)) { fs.writeFileSync(p, repointed); return; }
+
+  const doc = tryJson(stripComments(repointed));
+  if (!doc?.tasks) { fs.writeFileSync(p, repointed); return; }
+  doc.tasks = doc.tasks.filter((t) => !VENDORED_TESTS.test(t.command || ''));
+  fs.writeFileSync(p, JSON.stringify(doc, null, 2) + '\n');
 }
 
 function dropTasks(root) {

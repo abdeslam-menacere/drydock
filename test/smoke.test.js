@@ -502,6 +502,7 @@ function buildTemplateRepo() {
     version: '2.0.0',
     tasks: [
       { label: 'Drydock: status', type: 'shell', command: 'node ${workspaceFolder}/bin/drydock.js status' },
+      { label: 'Drydock: run tests', type: 'shell', command: 'node ${workspaceFolder}/test/smoke.test.js' },
       { label: 'Build site', type: 'shell', command: 'npm run build' },
     ],
     inputs: [{ id: 'issue', type: 'promptString', description: 'issue' }],
@@ -577,7 +578,10 @@ ok('flags package.json as yours to deal with', ej.stdout.includes('package.json'
 const tasksAfter = JSON.parse(fs.readFileSync(path.join(ejectRepo, '.vscode/tasks.json'), 'utf8'));
 ok('repoints tasks at the installed CLI',
   tasksAfter.tasks[0].command === 'drydock status', tasksAfter.tasks[0].command);
-ok('leaves the project’s own task alone', tasksAfter.tasks[1].command === 'npm run build');
+ok('drops the task that ran Drydock’s own suite',
+  !tasksAfter.tasks.some((t) => /smoke\.test\.js/.test(t.command)));
+ok('leaves the project’s own task alone',
+  tasksAfter.tasks.some((t) => t.command === 'npm run build'));
 
 ok('tells you how to keep using Drydock', ej.stdout.includes('npm i -g drydock'));
 ok('is fully revertible', execFileSync('git', ['status', '--porcelain'], { cwd: ejectRepo, encoding: 'utf8' }).length > 0);
