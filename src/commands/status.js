@@ -2,6 +2,7 @@ import { loadConfig, repoRoot, listDocks } from '../lib/config.js';
 import { log } from '../lib/log.js';
 import * as git from '../lib/git.js';
 import { previewFor } from './preview.js';
+import { readScore, scoreState } from './scorer.js';
 
 /**
  * One dock's gate state, rendered. `backlog` shows the same thing, so this
@@ -46,6 +47,19 @@ export default function status() {
     const p = previewFor(root, d.issue);
     if (p && !p.dead) log.dim(`preview: ${p.url} (serving ${p.sha.slice(0, 8)})`);
     else if (p) log.dim(`preview: recorded on ${p.url}, but the process is gone`);
+
+    // Read off disk, never computed by asking a model. `status` is run in a
+    // loop by people and by agents; a command that costs an inference call is
+    // a command nobody runs.
+    if (cfg.scorer?.enabled) {
+      const score = readScore(d.issue, root);
+      const state = scoreState(score, head);
+      if (state === 'fresh' && score.add?.length) log.dim(`scorer: added ${score.add.map((a) => a.gate).join(', ')}`);
+      else if (state === 'fresh' && score.unavailable) log.dim(`scorer: unavailable (${score.unavailable})`);
+      else if (state === 'fresh') log.dim('scorer: added nothing');
+      else if (state === 'stale') log.dim('scorer: STALE — scored an older commit');
+      else log.dim('scorer: has not run');
+    }
   }
   log.raw('');
   log.dim('✓ passed   ✗ failed   · not run   ⚠stale = new commits since the gate passed');

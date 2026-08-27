@@ -5,6 +5,7 @@ import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
 import { routeOrDie } from './route.js';
+import { ensureScore } from './scorer.js';
 import { renderReceipt } from './receipt.js';
 
 export default function land(args) {
@@ -28,6 +29,13 @@ export default function land(args) {
   }
 
   const head = git.headSha(dock.worktree);
+
+  // The ceiling, before the floor is read. A proposal binds to a SHA like a
+  // verdict does, so a stale one is worth nothing and gets recomputed here —
+  // the last point at which adding a gate can still change the outcome. If the
+  // scorer is off, broken or slow, this is a no-op and the deterministic route
+  // stands: it can only ever have added.
+  ensureScore(cfg, dock, head, root);
 
   // What this change earns, derived from its own diff. A pure projection —
   // never stored, recomputed here so a revert relaxes the route for free.

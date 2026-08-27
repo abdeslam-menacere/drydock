@@ -30,6 +30,44 @@ export function deleteBranch(name, cwd, force = false) {
   return tryRun('git', ['branch', force ? '-D' : '-d', name], { cwd });
 }
 
+/** The patch itself, or null when it cannot be read. */
+export function diffText(base, head, cwd, { unified = 3 } = {}) {
+  const r = tryRun('git', ['diff', `--unified=${unified}`, `${base}...${head}`], { cwd, maxBuffer: 64 * 1024 * 1024 });
+  return r.ok ? r.out : null;
+}
+
+/**
+ * Changed line ranges in the *new* file, keyed by path.
+ *
+ * `--unified=0` so a hunk header describes only lines that actually changed.
+ * This is what makes "evidence must point at the diff" checkable: a claim about
+ * line 900 of a file whose diff stops at line 40 is not evidence.
+ */
+export function diffRanges(base, head, cwd) {
+  const r = tryRun('git', ['diff', '--unified=0', `${base}...${head}`], { cwd, maxBuffer: 64 * 1024 * 1024 });
+  if (!r.ok) return null;
+
+  const out = {};
+  let file = null;
+  for (const line of r.out.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      const p = line.slice(4).trim();
+      file = p === '/dev/null' ? null : p.replace(/^b\//, '');
+      if (file && !out[file]) out[file] = [];
+      continue;
+    }
+    if (!file || !line.startsWith('@@')) continue;
+    const m = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))?/);
+    if (!m) continue;
+    const start = Number(m[1]);
+    const count = m[2] === undefined ? 1 : Number(m[2]);
+    // A pure deletion has count 0 and points *between* lines; record the
+    // insertion point so evidence about a removal still has somewhere to land.
+    out[file].push(count === 0 ? [start, start] : [start, start + count - 1]);
+  }
+  return out;
+}
+
 export function isDirty(cwd) {
   // Drydock's own manifests live in the working tree. In a dock with its own
   // worktree they land in the main checkout and never show up here; in a

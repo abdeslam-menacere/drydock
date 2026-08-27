@@ -27,6 +27,11 @@ export const DEFAULTS = {
   // can look at the running feature. Ephemeral runtime, gitignored, never a
   // daemon — SPEC §5's "state lives in git" holds because none of this is state.
   preview: { command: null, basePort: 4200 },
+  // An agent that may add gates a deterministic rule did not anticipate, and
+  // can never remove one. Off by default: it is a contributor, not a floor.
+  // `model` must be set and should not be the developer's — agents on one model
+  // agree with each other at scale. SPEC §11.4.
+  scorer: { enabled: false, command: null, model: null, timeoutMs: 120000 },
   // 'dock' binds gates to every commit in an isolated worktree; 'flow' binds
   // them to the pull request and lets CI be the only enforcement layer. The
   // binding point moves, the binding does not. SPEC §11.5.

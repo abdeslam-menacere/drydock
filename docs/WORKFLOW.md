@@ -175,6 +175,56 @@ refused the same way, rather than becoming a rule that silently never fires.
 owns; `codeowners: true` fires on any owned path. CODEOWNERS is read from the
 base branch too, for the same reason the rest of the policy is.
 
+### 2c. Let an agent argue for more (optional)
+
+Rules only know what somebody thought of in advance. The risk scorer is one
+agent allowed to contribute to the route, under one constraint: it may only add.
+
+```jsonc
+"scorer": {
+  "enabled": true,
+  "command": "copilot -p --model {model}",
+  "model": "a-model-that-is-not-the-developer's",
+  "timeoutMs": 120000
+}
+```
+
+`{model}` is substituted into the command. Anything that reads a prompt on stdin
+and writes JSON on stdout works — Drydock adds no dependency and makes no network
+call of its own.
+
+```bash
+drydock score 412          # run it now
+drydock score 412 --show   # what it last proposed, without spawning anything
+```
+
+```
+✓ Scorer added 1 gate: qa
+  qa — src/auth/login.js:12-14 — new token path with no test
+```
+
+The response schema is the enforcement:
+
+```json
+{ "add": [ { "gate": "qa", "evidence": { "file": "src/auth/login.js", "lines": [12, 14] },
+             "why": "new token path with no test" } ] }
+```
+
+There is no field for removing a gate, so no response can express one — including
+a response that has been talked into it by text inside the diff. An addition
+naming a gate the config does not define, or carrying evidence that does not
+point at lines that actually changed, is dropped and the reason is recorded.
+
+The proposal binds to a SHA and goes stale on a new commit, exactly like a
+verdict; `land` re-runs the scorer when it is stale. Once an addition is claimed
+on the receipt it is as binding as any other gate — `land` refuses without it.
+
+If the scorer is disabled, down, slow, or unparseable, the route falls back to
+the deterministic one and the receipt says so. That is safe here and nowhere
+else: a contributor that can only add is safe to lose. It also means the scorer
+must never be the only thing detecting a risk class you care about — a finding
+it keeps repeating belongs in `rules` as a deterministic rule.
+
 ### 3. Review gate
 
 ```bash

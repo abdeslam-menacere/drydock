@@ -74,6 +74,28 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
   }
   if (route.maxPath) out.push('', 'Routing failed closed: maximum path.');
 
+  // The ceiling, stated separately from the floor. CI re-derives only the
+  // deterministic route and checks the claim contains it, so these rows are
+  // invisible to enforcement — which is exactly why they have to be visible
+  // here. An addition nobody can see is an addition somebody can quietly drop.
+  const sc = route.scored;
+  if (sc?.state === 'fresh' && sc.add?.length) {
+    out.push(
+      '',
+      `Added by the risk scorer${sc.model ? ` (\`${sc.model}\`)` : ''}:`,
+      '',
+      ...sc.add.map((a) => `- **${a.gate}** — \`${a.evidence.file}:${a.evidence.lines.join('-')}\` — ${a.why}`),
+    );
+  }
+  if (sc?.unavailable) {
+    out.push(
+      '',
+      `The risk scorer was unavailable (${sc.unavailable}), so this route is the deterministic one only.`,
+      'That is a safe failure — the scorer can only ever add — but it means no',
+      'judgement was applied beyond the path rules.',
+    );
+  }
+
   if (previewed) {
     out.push(
       '',

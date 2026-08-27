@@ -4,6 +4,7 @@ import { parseArgs } from '../lib/args.js';
 import { matchesAny } from '../lib/glob.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
+import { readScore, applyScore } from './scorer.js';
 
 // --- drydock:derive-route (mirrored by .github/workflows/drydock-gates.yml) ---
 
@@ -336,13 +337,25 @@ function routeContext(cfg, dock, sha, root) {
   return ctx;
 }
 
-/** Derive the route for a dock at a given commit. */
+/**
+ * Derive the route for a dock at a given commit.
+ *
+ * Two layers, and the order matters. `deriveRoute` is the floor — deterministic,
+ * re-derivable by CI from the base branch, and the thing containment is checked
+ * against. A fresh scorer proposal is then folded in *above* it. The scorer can
+ * only push this function's answer upward; if it is absent, stale, disabled or
+ * broken, what comes out is exactly the deterministic route.
+ *
+ * Nothing here invokes a model. Reading a proposal off disk is all that happens,
+ * so `route`, `status` and `backlog` stay as cheap as they were.
+ */
 export function routeForDock(cfg, dock, sha, root) {
   const base = `origin/${dock.base}`;
   const from = git.resolveCommit(base, dock.worktree) ? base : dock.base;
   const diff = git.diffFiles(from, sha, dock.worktree);
   const binary = git.diffBinaryPaths(from, sha, dock.worktree);
-  return deriveRoute(cfg, diff, binary, routeContext(cfg, dock, sha, root));
+  const derived = deriveRoute(cfg, diff, binary, routeContext(cfg, dock, sha, root));
+  return applyScore(derived, readScore(dock.issue, root), sha, cfg);
 }
 
 /**
@@ -398,4 +411,20 @@ export default function route(args) {
   }
 
   if (!r.routed) log.dim('\n  Add a `routing` block to drydock.config.json to route by diff.');
+
+  // The scorer's contribution is reported separately from the rules on purpose.
+  // These two things have different standing: a rule is policy somebody agreed
+  // to, an addition is one agent's opinion with a citation. Merging them into
+  // one list would hide which is which at exactly the moment it matters.
+  const sc = r.scored ?? { state: 'absent', add: [] };
+  if (sc.state === 'fresh' && sc.add.length) {
+    log.raw(`\n  scorer${sc.model ? ` (${sc.model})` : ''}: ${sc.add.map((a) => a.gate).join(', ')}`);
+    for (const a of sc.add) log.dim(`    ${a.gate} ← ${a.evidence.file}:${a.evidence.lines.join('-')} — ${a.why}`);
+  } else if (sc.state === 'stale') {
+    log.dim(`\n  scorer: proposal is STALE — it scored a different commit. \`drydock land ${issue}\` re-runs it.`);
+  } else if (cfg.scorer?.enabled && sc.state === 'absent') {
+    log.dim('\n  scorer: has not run for this commit yet.');
+  }
+  if (sc.unavailable) log.dim(`  scorer was unavailable: ${sc.unavailable}`);
+  if (sc.dropped?.length) log.dim(`  scorer additions dropped: ${sc.dropped.join('; ')}`);
 }

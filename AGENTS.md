@@ -59,6 +59,18 @@ Two more rules from `SPEC.md` §11 govern anything you add here:
 - **Routing allocates judgement, never verification.** Tests, lint, and typecheck are not routable and no exemption reaches them. Routing decides how much review and QA attention to spend on top of a floor that always runs.
 - **Anything the author controls may only add gates, never remove them.** That covers labels, branch names, and the risk scorer alike. The deterministic router is the security boundary; an agent is never the sole detector of a known risk class.
 
+## The risk scorer (`SPEC.md` §11.4)
+
+`src/commands/scorer.js` lets one agent contribute to the route. Everything about it follows from a single property: **it may only add**, and that is enforced by the *shape of the parsed response*, not by the prompt. `parseScore` reads `add` and nothing else. Do not add a `remove`, `exempt`, or `skip` field, and do not make the prompt the thing that stops removal — a field that does not exist cannot be talked into existing by text inside a diff.
+
+- **Layered above `deriveRoute`, never inside it.** `routeForDock` = deterministic route, then `applyScore`. CI re-derives only the deterministic floor and checks `claimed ⊇ derived`, so the scorer's nondeterminism is structurally harmless. Keep it that way.
+- **Evidence is mandatory** — a file and a line range that intersect the diff's changed lines. The failure mode being defended against is noise, not security.
+- **A proposal binds to a SHA** and goes stale like a verdict. `land` recomputes; `status` and `route` read it off disk. Nothing except `score` and `land` may ever spawn a model.
+- **Fail-open is legal here and nowhere else.** Unavailable, malformed, timed out → the deterministic route, plus a note on the receipt. Never throw, never block.
+- **§10.3 applies:** issue and diff only, never the developer's summary — and `scorer.model` must be set explicitly, because agents on one model agree with each other at scale.
+
+If an addition is a gate only a human can record while `autonomy.level` is `full`, say so loudly and post to the issue. A dock that stalls in silence is an outage nobody can explain.
+
 ## Profiles and workspaces (`SPEC.md` §11.5)
 
 Flow mode moves *when* gates bind — to the pull request instead of to every commit — and `worktree: "auto"` allocates a directory only when concurrency or a pinned process actually needs one. Neither changes *what* binds: SHA binding, ordering, staleness, and no-bypass are identical in every mode, and a failed or stale gate blocks `land` in both. Flow mode has no local enforcement layer left, so `drydock-gates` being a required check is a precondition for it, not a nicety — do not add a local substitute.

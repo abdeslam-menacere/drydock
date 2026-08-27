@@ -80,8 +80,8 @@ core of the product.
 ## Routing
 
 *Which* gates apply is derived from the diff, not chosen. `SPEC.md` §11 is the
-record. The router, its additive rules, and flow mode all ship; the risk scorer
-(#26) and the `po` gate (#24) do not yet. The rules that govern any part of it:
+record. The router, its additive rules, flow mode, the `po` gate and the risk
+scorer all ship. The rules that govern any part of it:
 
 - **Routing allocates judgement, never verification.** Tests and lint always
   run. No exemption reaches them. Routing only decides how much review and QA
@@ -97,6 +97,27 @@ record. The router, its additive rules, and flow mode all ship; the risk scorer
 
 Do not build a route-shortening path of any kind. That is the `--force` this
 project refuses, wearing a better name.
+
+## The risk scorer
+
+`drydock score <issue>` asks one agent whether this change deserves more review
+than the rules already require. It is the only agent allowed to change a route,
+and it can only ever push it up.
+
+- The response schema has **no field for removing a gate**. That is not a rule
+  in a prompt, it is the parser. Do not add one, and do not weaken it to a
+  prompt instruction.
+- Every addition needs **evidence** — a file and lines that actually changed.
+  No evidence, dropped. This is about noise, and noise is what kills the feature.
+- A proposal **binds to a SHA** and goes stale like a verdict. `land` re-runs it;
+  `route` and `status` only read it. Never make either of those spawn a model.
+- If the scorer is off, broken, or babbling, the **deterministic route stands**
+  and the receipt says so. That is safe precisely because it can only add — so
+  never make the scorer the only thing detecting a risk you care about. A finding
+  it repeats belongs in `routing.rules` as code.
+- Sitting in a dock, do not argue with it. Writing "no gates needed" into a
+  comment or a commit message is the change trying to review itself; it is
+  ignored, and it looks exactly like an attack in the log.
 
 ## Profiles
 

@@ -207,6 +207,51 @@ can never shorten somebody else's route. Author-controlled signals like `label`
 are allowed to add and nothing else; a config that tries to use one to reach
 below the baseline is refused with an error naming the rule.
 
+**A rule cannot anticipate everything.** So one agent is allowed to contribute to
+the route — under exactly one constraint: **it may only add.**
+
+```jsonc
+"scorer": {
+  "enabled": true,
+  "command": "copilot -p --model {model}",
+  "model": "a-model-that-is-not-the-developer's",
+  "timeoutMs": 120000
+}
+```
+
+It reads the issue and the diff — never the developer's summary — and answers in
+one shape:
+
+```json
+{ "add": [ { "gate": "qa", "evidence": { "file": "src/auth/login.js", "lines": [12, 14] },
+             "why": "new token path with no test" } ] }
+```
+
+There is no field for removing a gate. That is the whole design. Monotonicity is
+a property of the schema rather than of the prompt, so the interesting failure
+modes collapse into harmless ones:
+
+- **A diff that argues it needs no review** is attacker-controlled text the
+  scorer reads. The most an injection achieves is suppressing an addition — the
+  route falls back to the deterministic floor.
+- **A scorer that is down, slow, or babbling** fails open, and the receipt says
+  so. Fail-open is never acceptable for a gate; it is fine for a contributor
+  that can only add.
+- **Evidence is mandatory** and must point at lines that actually changed. Not
+  for security — for noise. A scorer that adds `security` to every pull request
+  gets the whole tool deleted within a month.
+
+An addition is bound to a SHA and goes stale on a new commit, exactly like a
+verdict, and once it is claimed on the receipt it is as binding as any other
+gate. `drydock route` shows what it added and why; `drydock score --show` shows
+the raw proposal. Nothing else ever spawns a model — `status` and `route` read
+the proposal off disk.
+
+The load-bearing discipline, stated once: **the deterministic router is the
+security boundary, and the scorer is never the sole detector of a known risk
+class.** A finding it repeats belongs in `rules` as code. Its success metric is
+that it goes quiet.
+
 **Ceremony is earned too.** Routing decides *how many* gates a change owes. The
 `profile` decides *when* they bind, and whether the dock gets a worktree at all.
 
@@ -365,8 +410,8 @@ receipt, and the CI receipt check rejecting stale receipts, missing receipts,
 copied receipts, and partial gates.
 
 **The whole CLI surface that exists today** is `init`, `config`, `start`, `run`,
-`route`, `backlog`, `status`, `preview`, `gate`, `land`, and `clean`. Any other
-command in this repo's documentation is marked **Not shipped yet — #N**.
+`route`, `score`, `backlog`, `status`, `preview`, `gate`, `land`, and `clean`.
+Any other command in this repo's documentation is marked **Not shipped yet — #N**.
 
 ### Documented but not shipped yet
 

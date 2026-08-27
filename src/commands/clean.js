@@ -2,6 +2,7 @@ import { loadConfig, repoRoot, readDock, dockPath, listDocks } from '../lib/conf
 import { log, die } from '../lib/log.js';
 import * as git from '../lib/git.js';
 import { stopPreview, previewFor } from './preview.js';
+import { removeScore } from './scorer.js';
 import fs from 'node:fs';
 
 export default function clean(args) {
@@ -44,6 +45,7 @@ export default function clean(args) {
       log.dim(`#${d.issue}: still on ${d.branch} — branch left alone.`);
     }
     fs.rmSync(dockPath(d.issue, root), { force: true });
+    removeScore(d.issue, root);
     log.ok(`#${d.issue} cleaned — ${inWorktree ? 'worktree, branch, and manifest' : 'manifest'} removed`);
   }
 }
