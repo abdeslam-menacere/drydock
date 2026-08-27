@@ -6,6 +6,7 @@ import { tryRun } from '../lib/sh.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
+import { assertOnBranch } from './start.js';
 import { loadConfig, repoRoot, readDock } from '../lib/config.js';
 import { parseArgs } from '../lib/args.js';
 import { die } from '../lib/log.js';
@@ -327,6 +328,8 @@ export default function score(args) {
 
   const dock = readDock(issue, root);
   if (!dock) die(`No dock for issue #${issue}.`, `Run \`drydock start ${issue}\` first.`);
+
+  assertOnBranch(dock, 'scoring');
 
   const head = git.headSha(dock.worktree);
   const existing = readScore(issue, root);

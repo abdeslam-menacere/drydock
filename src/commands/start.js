@@ -125,6 +125,33 @@ export default async function start(args) {
 }
 
 /**
+ * A branch-mode dock has to be the branch that is checked out.
+ *
+ * In dock mode this is structurally guaranteed: the worktree holds the branch,
+ * so HEAD there is always the dock's HEAD. With `worktree: "auto"` or `"never"`
+ * `dock.worktree` is the developer's own checkout, and if they have switched
+ * away, HEAD belongs to something else — so a verdict would bind to a commit
+ * that is not on this dock, a preview would serve another branch's code, and
+ * `land` would push the dock branch's real tip under a receipt describing what
+ * happened to be checked out instead.
+ *
+ * Refusing is the honest fix. Reading `refs/heads/<branch>` instead would judge
+ * one commit while the dirty-tree check inspected an unrelated working copy.
+ * `clean` already guards this way; every command that binds to a commit now
+ * does too. Commands that only *report* across every dock — `status`,
+ * `backlog` — deliberately do not, since dying there would make them useless.
+ */
+export function assertOnBranch(dock, verb) {
+  if ((dock.workspace ?? 'worktree') === 'worktree') return;
+  const here = git.currentBranch(dock.worktree);
+  if (here === dock.branch) return;
+  die(
+    `Dock #${dock.issue} is on \`${dock.branch}\`, but \`${here || 'a detached HEAD'}\` is checked out.`,
+    `This dock has no worktree of its own, so ${verb} here would use the wrong commit. Run: git switch ${dock.branch}`,
+  );
+}
+
+/**
  * Worktree, or just a branch?
  *
  * A worktree solves exactly two problems: two checkouts of the same repo needed

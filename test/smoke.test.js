@@ -1347,6 +1347,9 @@ ok('gating from another branch is refused', gateAway.status !== 0, gateAway.stdo
 ok('and names both branches', gateAway.stderr.includes(d420.branch) && gateAway.stderr.includes(home420), gateAway.stderr);
 const landAway = dd(['land', '420', '--dry-run']);
 ok('landing from another branch is refused too', landAway.status !== 0, landAway.stdout + landAway.stderr);
+ok('and so is reading a route from it', dd(['route', '420', '--json']).status !== 0);
+ok('and scoring it', dd(['score', '420', '--show']).status !== 0);
+ok('but status still reports on every dock', dd(['status']).status === 0);
 git(['switch', '-q', d420.branch], repo);
 ok('and both work again once you switch back', dd(['land', '420', '--dry-run']).status === 0);
 git(['switch', '-q', home420], repo);

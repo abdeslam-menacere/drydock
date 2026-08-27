@@ -7,6 +7,7 @@ import * as notify from './notify.js';
 import { routeOrDie } from './route.js';
 import { renderReceipt } from './receipt.js';
 import { previewFor } from './preview.js';
+import { assertOnBranch } from './start.js';
 import { resolveActor, isAgent } from '../lib/actor.js';
 
 // Re-exported so callers that already know `gate` as the home of attribution
@@ -119,30 +120,6 @@ export default function gate(args) {
     log.err(`Gate "${name}" failed @ ${sha.slice(0, 8)} by ${by}`);
     if (note) log.dim(note);
   }
-}
-
-/**
- * A branch-mode dock has no directory of its own, so nothing pins it.
- *
- * In dock mode this was structurally impossible: the worktree held the branch
- * and HEAD there was always the dock's HEAD. With `worktree: "auto"` or
- * `"never"` (#23) `dock.worktree` is the main checkout, and if the developer
- * has switched away, HEAD is some other branch entirely — so a verdict would
- * bind to a commit that is not on this dock, and `land` would push the dock
- * branch's real tip under a receipt describing something else.
- *
- * Refusing is the honest fix. Reading `refs/heads/<branch>` instead would gate
- * a commit while the dirty-tree check inspected an unrelated working copy.
- * `clean` already guards this way; `gate` and `land` now do too.
- */
-export function assertOnBranch(dock, verb) {
-  if ((dock.workspace ?? 'worktree') === 'worktree') return;
-  const here = git.currentBranch(dock.worktree);
-  if (here === dock.branch) return;
-  die(
-    `Dock #${dock.issue} is on \`${dock.branch}\`, but \`${here || 'a detached HEAD'}\` is checked out.`,
-    `This dock has no worktree of its own, so ${verb} here would bind to the wrong commit. Run: git switch ${dock.branch}`,
-  );
 }
 
 /** Rewrite the PR receipt so the server sees what the manifest now says. */

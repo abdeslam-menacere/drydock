@@ -7,6 +7,7 @@ import { log, die } from '../lib/log.js';
 import { tryRun } from '../lib/sh.js';
 import * as git from '../lib/git.js';
 import * as notify from './notify.js';
+import { assertOnBranch } from './start.js';
 
 // Runtime, not state. `.drydock/tmp/` is gitignored by `init`, and this file
 // must stay there: a pid and a port are true for one machine for a few hours,
@@ -155,6 +156,8 @@ async function start(root, cfg, issue) {
   const dock = readDock(issue, root);
   if (!dock) die(`No dock for issue #${issue}.`, `Run \`drydock start ${issue}\` first.`);
 
+  assertOnBranch(dock, 'serving a preview');
+
   const running = previewFor(root, issue);
   if (running && !running.dead) {
     log.info(`Preview for #${issue} is already running: ${running.url}`);
@@ -177,8 +180,8 @@ async function start(root, cfg, issue) {
   if (port !== wanted) log.warn(`Port ${wanted} is taken â€” using ${port} instead.`);
 
   const sha = git.headSha(dock.worktree);
-  const logFile = path.join(root, STATE_DIR, 'tmp', `preview-${issue}.log`);
-  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+
+  const logFile = path.join(root, STATE_DIR, 'tmp', `preview-${issue}.log`);  fs.mkdirSync(path.dirname(logFile), { recursive: true });
   const fd = fs.openSync(logFile, 'a');
 
   // Detached and unref'd: Drydock starts the process and forgets it. A

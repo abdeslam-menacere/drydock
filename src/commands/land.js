@@ -6,7 +6,7 @@ import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
 import { routeOrDie } from './route.js';
 import { ensureScore } from './scorer.js';
-import { assertOnBranch } from './gate.js';
+import { assertOnBranch } from './start.js';
 import { renderReceipt } from './receipt.js';
 
 export default function land(args) {

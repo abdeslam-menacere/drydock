@@ -5,6 +5,7 @@ import { matchesAny } from '../lib/glob.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import { readScore, applyScore } from './scorer.js';
+import { assertOnBranch } from './start.js';
 
 // --- drydock:derive-route (mirrored by .github/workflows/drydock-gates.yml) ---
 
@@ -398,8 +399,11 @@ export default function route(args) {
   const dock = readDock(issue, root);
   if (!dock) die(`No dock for issue #${issue}.`, `Run \`drydock start ${issue}\` first.`);
 
+  assertOnBranch(dock, 'reading a route');
+
   const head = git.headSha(dock.worktree);
   const r = routeOrDie(cfg, dock, head, root);
+
 
   if (cli.flags.has('--json')) {
     log.raw(JSON.stringify({ issue: Number(issue), sha: head, ...r }, null, 2));
