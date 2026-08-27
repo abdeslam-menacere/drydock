@@ -2,6 +2,20 @@ import { loadConfig, repoRoot, listDocks } from '../lib/config.js';
 import { log } from '../lib/log.js';
 import * as git from '../lib/git.js';
 
+/**
+ * One dock's gate state, rendered. `backlog` shows the same thing, so this
+ * lives here rather than being written twice and drifting.
+ */
+export function gateMarks(dock, gateNames, head) {
+  return gateNames.map((n) => {
+    const g = dock.gates?.[n];
+    if (!g) return `${n}:·`;
+    if (g.verdict !== 'pass') return `${n}:✗`;
+    if (head && g.sha !== head) return `${n}:⚠stale`;
+    return `${n}:✓`;
+  }).join('  ');
+}
+
 export default function status() {
   const root = repoRoot();
   const cfg = loadConfig(root);
@@ -17,13 +31,7 @@ export default function status() {
     let head = null;
     try { head = git.headSha(d.worktree); } catch { /* worktree gone */ }
 
-    const marks = cfg.gates.map((n) => {
-      const g = d.gates[n];
-      if (!g) return `${n}:·`;
-      if (g.verdict !== 'pass') return `${n}:✗`;
-      if (head && g.sha !== head) return `${n}:⚠stale`;
-      return `${n}:✓`;
-    }).join('  ');
+    const marks = gateMarks(d, cfg.gates, head);
 
     const state = head ? d.status : 'worktree-missing';
     log.raw(`  #${String(d.issue).padEnd(5)} ${marks.padEnd(26)} ${state.padEnd(18)} ${d.title}`);

@@ -12,6 +12,7 @@ import { parseArgs } from '../src/lib/args.js';
 import { matchesGlob, globToRegExp } from '../src/lib/glob.js';
 import { deriveRoute, validateRouting, parseCodeowners, ownersFor } from '../src/commands/route.js';
 import { planWorkspace } from '../src/commands/start.js';
+import { parseBlockedBy, buildGraph } from '../src/commands/backlog.js';
 import { resolveActor, isAgent } from '../src/commands/gate.js';
 import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
@@ -43,6 +44,7 @@ const readCfg = () => JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
 const gitignore = () => fs.readFileSync(path.join(repo, '.gitignore'), 'utf8');
 const json = (r) => { try { return JSON.parse(r.stdout); } catch { return null; } };
 const throws = (fn) => { try { fn(); return false; } catch { return true; } };
+const deepEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Drive the real interview over scripted streams, capturing what it asked. */
 async function answer(lines, opts = {}) {
@@ -845,6 +847,127 @@ fs.writeFileSync(cfgFile, dockProfileCfg);
 ok('cleaning a branch-mode dock removes the manifest, not a worktree',
   dd(['clean', '418', '--force']).status === 0);
 ok('and the dock is gone', !fs.existsSync(path.join(repo, '.drydock/docks/418.json')));
+
+console.log('\nbacklog: reading the edges');
+ok('a plain declaration', deepEq(parseBlockedBy('blocked-by: #12'), [12]));
+ok('spaced, no colon, capitalised', deepEq(parseBlockedBy('Blocked by #12'), [12]));
+ok('several on one line', deepEq(parseBlockedBy('blocked-by: #12, #13 and #14'), [12, 13, 14]));
+ok('several lines, in a list', deepEq(parseBlockedBy('- blocked-by: #12\n- blocked-by: #13'), [12, 13]));
+ok('inside a quote', deepEq(parseBlockedBy('> blocked-by: #7'), [7]));
+ok('duplicates collapse', deepEq(parseBlockedBy('blocked-by: #7\nblocked-by: #7'), [7]));
+ok('an example in fenced code is not an edge',
+  deepEq(parseBlockedBy('```\nblocked-by: #99\n```\nblocked-by: #1'), [1]));
+ok('a mention that is not a declaration is not an edge', deepEq(parseBlockedBy('see #12'), []));
+ok('no body, no edges', deepEq(parseBlockedBy(''), []) && deepEq(parseBlockedBy(null), []));
+
+console.log('\nbacklog: the ready set');
+const issue = (number, extra = {}) => ({ number, title: `issue ${number}`, body: '', parent: null, ...extra });
+const stateMap = (g) => Object.fromEntries(g.nodes.map((n) => [n.number, n.state]));
+
+const plain = buildGraph({ issues: [issue(1), issue(2, { body: 'blocked-by: #1' })], gates: ['review'] });
+ok('an issue nothing blocks is ready', stateMap(plain)[1] === 'ready');
+ok('an issue with an open dependency is blocked', stateMap(plain)[2] === 'blocked');
+ok('and it names what is blocking it', deepEq(plain.nodes[1].unmetBlockers, [1]));
+
+const withDock = buildGraph({
+  issues: [issue(1), issue(2, { body: 'blocked-by: #1' })],
+  docks: [{ issue: 1, branch: 'feat/1', status: 'open', gates: {} }],
+  gates: ['review', 'qa'],
+});
+ok('an issue with a dock is in dock, not ready', stateMap(withDock)[1] === 'in dock');
+ok('and a dock that has not landed still blocks its dependents', stateMap(withDock)[2] === 'blocked');
+
+const gated = buildGraph({
+  issues: [issue(1)],
+  docks: [{ issue: 1, branch: 'feat/1', status: 'open', gates: { review: { verdict: 'pass', sha: 'aaa' }, qa: { verdict: 'pass', sha: 'aaa' } } }],
+  gates: ['review', 'qa'],
+  heads: { 1: 'aaa' },
+});
+ok('every gate passed at HEAD reads as gated', stateMap(gated)[1] === 'gated');
+
+const staleDock = buildGraph({
+  issues: [issue(1)],
+  docks: [{ issue: 1, branch: 'feat/1', status: 'open', gates: { review: { verdict: 'pass', sha: 'aaa' }, qa: { verdict: 'pass', sha: 'aaa' } } }],
+  gates: ['review', 'qa'],
+  heads: { 1: 'bbb' },
+});
+ok('a stale pass is not gated — the backlog does not disagree with land',
+  stateMap(staleDock)[1] === 'in dock');
+
+const routed = buildGraph({
+  issues: [issue(1)],
+  docks: [{ issue: 1, branch: 'feat/1', status: 'open', gates: { review: { verdict: 'pass', sha: 'aaa' } } }],
+  gates: ['review', 'qa'],
+  routes: { 1: ['review'] },
+  heads: { 1: 'aaa' },
+});
+ok('a dock that owes fewer gates is gated once it has paid them', stateMap(routed)[1] === 'gated');
+
+const landed = buildGraph({
+  issues: [issue(1), issue(2, { body: 'blocked-by: #1' })],
+  docks: [{ issue: 1, branch: 'feat/1', status: 'landed', gates: {} }],
+  gates: ['review'],
+});
+ok('a landed dock reads as landed', stateMap(landed)[1] === 'landed');
+ok('and stops blocking its dependents', stateMap(landed)[2] === 'ready');
+
+const subIssues = buildGraph({ issues: [issue(1), issue(2, { parent: 1 })], gates: [] });
+ok('a parent is blocked by its open sub-issue', stateMap(subIssues)[1] === 'blocked');
+ok('and the child itself is ready', stateMap(subIssues)[2] === 'ready');
+ok('the edge points the way decomposition does', deepEq(subIssues.nodes[0].blockedBy, [2]));
+
+const both = buildGraph({ issues: [issue(1), issue(2), issue(3, { parent: 1, body: 'blocked-by: #2' })], gates: [] });
+ok('native and body edges combine rather than replacing each other',
+  deepEq(both.nodes[0].blockedBy, [3]) && deepEq(both.nodes[2].blockedBy, [2]));
+ok('an edge to an issue outside the backlog is dropped, not invented',
+  deepEq(buildGraph({ issues: [issue(1, { body: 'blocked-by: #999' })], gates: [] }).nodes[0].blockedBy, []));
+ok('an issue cannot block itself',
+  deepEq(buildGraph({ issues: [issue(1, { body: 'blocked-by: #1' })], gates: [] }).nodes[0].blockedBy, []));
+
+console.log('\nbacklog: cycles');
+const cyc = buildGraph({
+  issues: [issue(1, { body: 'blocked-by: #2' }), issue(2, { body: 'blocked-by: #1' }), issue(3)],
+  gates: [],
+});
+ok('a cycle is detected', cyc.cycles.length === 1, JSON.stringify(cyc.cycles));
+ok('and reports both members', deepEq([...cyc.cycles[0]].sort(), [1, 2]));
+ok('nothing in a cycle is ever ready', stateMap(cyc)[1] === 'blocked' && stateMap(cyc)[2] === 'blocked');
+ok('and the nodes are flagged as such', cyc.nodes[0].inCycle && !cyc.nodes[2].inCycle);
+ok('an issue outside the cycle is unaffected', stateMap(cyc)[3] === 'ready');
+ok('a three-hop cycle is detected once, not three times', buildGraph({
+  issues: [issue(1, { body: 'blocked-by: #2' }), issue(2, { body: 'blocked-by: #3' }), issue(3, { body: 'blocked-by: #1' })],
+  gates: [],
+}).cycles.length === 1);
+ok('a diamond is not a cycle', buildGraph({
+  issues: [issue(1, { body: 'blocked-by: #2\nblocked-by: #3' }), issue(2, { body: 'blocked-by: #4' }),
+    issue(3, { body: 'blocked-by: #4' }), issue(4)],
+  gates: [],
+}).cycles.length === 0);
+
+console.log('\nbacklog: the command');
+const bl = dd(['backlog']);
+ok('backlog exits 0', bl.status === 0, bl.stdout + bl.stderr);
+ok('and says so when it cannot reach GitHub', /gh unavailable/.test(bl.stdout + bl.stderr), bl.stdout);
+ok('degrading still shows the docks on disk', bl.stdout.includes('#412'), bl.stdout);
+
+const blJson = dd(['backlog', '--json']);
+const graphJson = json(blJson);
+ok('--json parses', !!graphJson, blJson.stdout.slice(0, 200));
+ok('and emits nothing but JSON — an orchestrator reads this',
+  blJson.stdout.trim().startsWith('{') && !/gh unavailable/.test(blJson.stdout));
+ok('it names the source it degraded to', graphJson.source === 'docks');
+ok('every node carries a state from the documented set',
+  graphJson.nodes.every((n) => ['ready', 'blocked', 'in dock', 'gated', 'landed'].includes(n.state)));
+ok('a dock in flight carries its gate state and workspace',
+  graphJson.nodes.every((n) => !n.dock || (n.dock.branch && n.dock.profile && n.dock.workspace)));
+ok('cycles are in the payload too', Array.isArray(graphJson.cycles));
+
+const readyJson = json(dd(['backlog', '--ready', '--json']));
+ok('--ready narrows to the ready set', readyJson.nodes.every((n) => n.state === 'ready'));
+ok('backlog refuses an option it does not have', dd(['backlog', '--all']).status !== 0);
+const backlogSrc = fs.readFileSync(path.join(sourceRoot, 'src', 'commands', 'backlog.js'), 'utf8');
+ok('backlog reads and never writes',
+  !/gh\.(comment|createPr|updatePrBody|mergePr)\b/.test(backlogSrc) && !/writeDock|writeFileSync/.test(backlogSrc));
 
 console.log('\nclean');
 ok('clean exits 0', dd(['clean', '412', '--force']).status === 0);

@@ -31,6 +31,17 @@ to `drydock.config.json`. `drydock config` reopens it.
 
 ## Per feature
 
+### 0. Pick the next one
+
+```bash
+drydock backlog --ready
+```
+
+Open issues with nothing blocking them and no dock holding them. Edges come
+from sub-issues, or from `blocked-by: #N` in the body. `drydock backlog` without
+`--ready` shows the whole graph — what is in flight, what is gated, and what is
+waiting on what. `--json` is the same thing for an orchestrator.
+
 ### 1. Write the issue
 
 Use the Drydock issue template. The field that matters most is **Explicitly out of scope** — it's what the review gate scores against, and it's the cheapest scope-creep prevention available.

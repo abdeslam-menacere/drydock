@@ -250,6 +250,30 @@ neither problem exists, the isolation ceremony is pure cost. `always` and
 `never` are also available, and `drydock status` always names which one a dock
 got and why.
 
+**What should I start next?** `drydock backlog` answers it. Issues are nodes,
+`blocked-by` relationships are edges, and the interesting query is the ready
+set — open, nothing blocking it, no dock holding it.
+
+```
+15 open · 3 ready
+
+ready
+  #21    Routing v1: baseline, exempt, and the containment check
+in dock
+  #23    review:✓  qa:·        Flow mode
+         feat/23-flow-mode  ·  flow / branch
+blocked
+  #26    Risk scorer
+         blocked by #21, #22
+```
+
+Edges come from GitHub's native sub-issue relationships where the repo uses
+them — a parent is blocked by its open sub-issues — and from `blocked-by: #N`
+in the issue body where it doesn't. Both, if both are present. A cycle is
+reported and every issue in it is held blocked, because nothing in a cycle can
+ever become ready. `--ready` narrows to what you can pick up; `--json` emits
+the graph for an orchestrator. It writes nothing.
+
 ## Works with your agent
 
 The behavioural contracts live in `.github/`, which is simultaneously:
@@ -315,8 +339,8 @@ receipt, and the CI receipt check rejecting stale receipts, missing receipts,
 copied receipts, and partial gates.
 
 **The whole CLI surface that exists today** is `init`, `config`, `start`, `run`,
-`route`, `status`, `gate`, `land`, and `clean`. Any other command in this repo's
-documentation is marked **Not shipped yet — #N**.
+`route`, `backlog`, `status`, `gate`, `land`, and `clean`. Any other command in
+this repo's documentation is marked **Not shipped yet — #N**.
 
 ### Documented but not shipped yet
 

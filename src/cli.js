@@ -3,6 +3,7 @@ import config from './commands/config.js';
 import start from './commands/start.js';
 import run from './commands/run.js';
 import route from './commands/route.js';
+import backlog from './commands/backlog.js';
 import gate from './commands/gate.js';
 import land from './commands/land.js';
 import status from './commands/status.js';
@@ -17,6 +18,7 @@ const COMMANDS = {
   start:  [start,  'Open a dock for a GitHub issue (branch + worktree + agent brief)'],
   run:    [run,    'Print the orchestration prompt for an issue, for any agent surface'],
   route:  [route,  'Show which gates this change earns, and why'],
+  backlog:[backlog,'Show what is ready to start, what is blocked, and by what'],
   status: [status, 'Show every dock in flight and its gate state'],
   gate:   [gate,   'Record a gate verdict, bound to the current commit'],
   land:   [land,   'Verify gates, push, and open the pull request'],
