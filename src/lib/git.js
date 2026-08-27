@@ -150,10 +150,23 @@ export function diffStats(base, head, cwd) {
   return { added, deleted };
 }
 
-/** Contents of `path` at `ref`, or null when the file does not exist there. */
+/** Contents of `path` at `ref`, or null when it cannot be read. */
 export function showFile(ref, filePath, cwd) {
-  const r = tryRun('git', ['show', `${ref}:${filePath}`], { cwd });
+  const r = tryRun('git', ['show', `${ref}:${filePath}`], { cwd, maxBuffer: 64 * 1024 * 1024 });
   return r.ok ? r.out : null;
+}
+
+/**
+ * Does `path` exist at `ref`?
+ *
+ * `showFile` returning null is ambiguous — absent, or present and unreadable —
+ * and routing has to tell those apart: "no CODEOWNERS" means nobody owns
+ * anything, while "CODEOWNERS exists but we could not read it" must fail closed.
+ * Collapsing the two makes the fail-closed branch unreachable and quietly
+ * *shrinks* routes.
+ */
+export function pathExists(ref, filePath, cwd) {
+  return tryRun('git', ['cat-file', '-e', `${ref}:${filePath}`], { cwd }).ok;
 }
 
 export function pushBranch(branch, cwd) {

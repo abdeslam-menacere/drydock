@@ -74,6 +74,10 @@ The server layer is the real one. Set it as a required status check in branch pr
 | Open PR by hand, skip gates | CI finds no receipt → fail |
 | Paste a fake receipt | SHAs must match PR head; forging requires knowing the head, and the receipt is still auditable in `.drydock/` history |
 | Push after landing | `synchronize` event re-runs CI; SHA no longer matches → fail |
+| Smuggle a row into the receipt through a gate note or an actor name | The receipt is parsed one row per line, so a line break in a caller-supplied value is a forged verdict. `gate` refuses `--note` and `--as` containing one, `DRYDOCK_ACTOR` is collapsed to a single line, and the renderer escapes every interpolated cell — a hand-edited manifest still yields one row per gate. |
+| Bind a verdict to a commit nobody reviewed | `--sha` names the reviewed commit and a mismatch with the dock's HEAD is refused (§4.1). Without it the verdict binds to HEAD at write time, which may have moved during the review. |
+| Gate or land a branch-mode dock from another branch | With no worktree of its own (§11.5) nothing pins a dock to its branch, so `gate` and `land` refuse unless it is the branch checked out. |
+| A CODEOWNERS that will not read | Absence and unreadability are distinguished (`git cat-file -e`, then `git show`); unreadable fails closed to the maximum path in both the CLI and CI. |
 | Edit the PR body to add gates | `edited` event re-runs CI; still SHA-checked. **Residual risk:** an author with write access can fabricate a matching receipt. Drydock raises the cost and creates an audit trail; it does not replace CODEOWNERS. |
 | Agent edits its own gate manifest | **Known gap in v0.1.** Manifests are plain files in the worktree's parent repo. v0.2 should move gate recording behind a signed commit or a GitHub check-run written by a separate identity. |
 

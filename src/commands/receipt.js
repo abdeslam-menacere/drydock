@@ -11,6 +11,23 @@ export const RECEIPT_MARKER = '**drydock-receipt:v1**';
 export const ROUTE_MARKER = '**drydock-route:v1**';
 
 /**
+ * Make a value safe to put in a table cell.
+ *
+ * A receipt is not prose, it is the artifact CI parses — with a line-anchored
+ * regex, one row per line. So a note or an actor name containing a newline does
+ * not merely look wrong: it emits *additional rows*, and CI reads them as real
+ * verdicts. That is a forged gate, recordable by anyone allowed to record any
+ * gate, and in flow mode `drydock-gates` is the only layer left to fool.
+ *
+ * Whitespace collapses and `|` is escaped, here rather than only at the point a
+ * verdict is recorded, because this function owns the invariant "one row is one
+ * line" and a manifest can be edited by hand.
+ */
+function cell(value) {
+  return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\|/g, '\\|').trim();
+}
+
+/**
  * The gate receipt that goes in the pull request body.
  *
  * Rendered in both profiles, from the same data, and read by CI in both. In
@@ -27,15 +44,15 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
   const rows = verdicts.map(({ name, g, agent }) => {
     if (!g || g.verdict !== 'pass') {
       const state = !g ? '⏳ pending' : '❌ fail';
-      return `| ${name} | ${state} | — | ${g ? `${agent ? '🤖' : '👤'} ${g.by}` : '—'} | ${g?.note || 'not recorded yet'} |`;
+      return `| ${cell(name)} | ${state} | — | ${g ? `${agent ? '🤖' : '👤'} ${cell(g.by)}` : '—'} | ${cell(g?.note) || 'not recorded yet'} |`;
     }
     // A human-only gate is bound to what the preview was serving, not to
     // whatever HEAD happened to be. Those are the same commit at record time
     // — `gate` refuses otherwise — but the receipt has to say which question
     // was answered, because "someone looked at this running" and "someone read
     // this diff" are not the same evidence.
-    const commit = `\`${g.sha.slice(0, 8)}\`${g.via === 'preview' ? ' (preview)' : ''}`;
-    return `| ${name} | ✅ ${g.verdict} | ${commit} | ${agent ? '🤖' : '👤'} ${g.by} | ${g.note || '—'} |`;
+    const commit = `\`${cell(g.sha).slice(0, 8)}\`${g.via === 'preview' ? ' (preview)' : ''}`;
+    return `| ${cell(name)} | ✅ ${cell(g.verdict)} | ${commit} | ${agent ? '🤖' : '👤'} ${cell(g.by)} | ${cell(g.note) || '—'} |`;
   }).join('\n');
 
   // Who recorded a verdict changes what it is worth, so the receipt has to say
@@ -59,9 +76,9 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
     '',
     legend,
     '',
-    `${ROUTE_MARKER} \`${route.gates.join(',')}\``,
+    `${ROUTE_MARKER} \`${route.gates.map(cell).join(',')}\``,
     '',
-    `Route: ${route.reason}`,
+    `Route: ${cell(route.reason)}`,
   ];
 
   // Naming the exemption is what separates routing from a bypass: the record
@@ -69,7 +86,7 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
   if (route.exemption) {
     out.push(
       '',
-      `Exemption used: \`${route.exemption.name}\` — matched the entire diff (${route.exemption.files.length} file${route.exemption.files.length === 1 ? '' : 's'}) against \`${route.exemption.paths.join('`, `')}\`.`,
+      `Exemption used: \`${cell(route.exemption.name)}\` — matched the entire diff (${route.exemption.files.length} file${route.exemption.files.length === 1 ? '' : 's'}) against \`${route.exemption.paths.map(cell).join('`, `')}\`.`,
     );
   }
   if (route.maxPath) out.push('', 'Routing failed closed: maximum path.');
@@ -78,19 +95,22 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
   // deterministic route and checks the claim contains it, so these rows are
   // invisible to enforcement — which is exactly why they have to be visible
   // here. An addition nobody can see is an addition somebody can quietly drop.
+  //
+  // Every value below originates in an agent's JSON, which makes this the one
+  // place in the receipt where the text is written by something with a motive.
   const sc = route.scored;
   if (sc?.state === 'fresh' && sc.add?.length) {
     out.push(
       '',
-      `Added by the risk scorer${sc.model ? ` (\`${sc.model}\`)` : ''}:`,
+      `Added by the risk scorer${sc.model ? ` (\`${cell(sc.model)}\`)` : ''}:`,
       '',
-      ...sc.add.map((a) => `- **${a.gate}** — \`${a.evidence.file}:${a.evidence.lines.join('-')}\` — ${a.why}`),
+      ...sc.add.map((a) => `- **${cell(a.gate)}** — \`${cell(a.evidence.file)}:${cell(a.evidence.lines.join('-'))}\` — ${cell(a.why)}`),
     );
   }
   if (sc?.unavailable) {
     out.push(
       '',
-      `The risk scorer was unavailable (${sc.unavailable}), so this route is the deterministic one only.`,
+      `The risk scorer was unavailable (${cell(sc.unavailable)}), so this route is the deterministic one only.`,
       'That is a safe failure — the scorer can only ever add — but it means no',
       'judgement was applied beyond the path rules.',
     );

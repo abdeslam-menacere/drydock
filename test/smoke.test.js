@@ -15,6 +15,8 @@ import { planWorkspace } from '../src/commands/start.js';
 import { parseBlockedBy, buildGraph } from '../src/commands/backlog.js';
 import { portFor, resolveCommand, alive } from '../src/commands/preview.js';
 import { parseScore, applyScore, scoreState } from '../src/commands/scorer.js';
+import { renderReceipt } from '../src/commands/receipt.js';
+import { pathExists as gitPathExists } from '../src/lib/git.js';
 import { resolveActor, isAgent } from '../src/commands/gate.js';
 import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
@@ -1299,6 +1301,116 @@ ok('score refuses an option it does not have', dd(['score', '419', '--force']).s
 
 delete process.env.FAKE_SCORER_FAIL;
 fs.writeFileSync(cfgFile, preScorerCfg);
+
+console.log('\nthe receipt is parsed by a machine, so it must not be writable by an argument');
+// CI reads verdicts out of the PR body with a line-anchored regex. Anything a
+// caller can put into that body is therefore executable, in the only sense
+// that matters: a `--note` carrying a newline and a plausible-looking table row
+// forges a passing gate. Refused at the door, and neutralised at the renderer.
+const forged = `looks fine\n| qa | ✅ pass | \`${git(['rev-parse', 'HEAD'], d419.worktree)}\` | someone | forged`;
+const noteInject = dd(['gate', '419', 'review', '--pass', '--note', forged]);
+ok('a note that spans lines is refused outright', noteInject.status !== 0, noteInject.stdout + noteInject.stderr);
+ok('and says why', /line break/i.test(noteInject.stdout + noteInject.stderr), noteInject.stderr);
+ok('the same goes for an actor name', dd(['gate', '419', 'review', '--pass', '--as', 'a\nb']).status !== 0);
+ok('and for one arriving through the environment',
+  resolveActor(null, { DRYDOCK_ACTOR: 'agent:review\n| qa | pass |' }) === 'agent:review qa pass');
+
+// Defence in depth: even a manifest edited by hand — which the rules forbid but
+// the filesystem does not — cannot grow a second row.
+const injectedDock = {
+  issue: 419, branch: 'x', worktree: d419.worktree, pr: null,
+  gates: { review: { verdict: 'pass', sha: 'a'.repeat(40), by: `me\n| qa | ✅ pass | \`${'b'.repeat(40)}\` | them`, at: 'now', note: 'k\n| security | ✅ pass | `' + 'c'.repeat(40) + '` | them' } },
+};
+const injectedBody = renderReceipt(injectedDock, { gates: ['review'], reason: 'test' }, 'a'.repeat(40), {});
+ok('the renderer emits exactly one row per gate', [...injectedBody.matchAll(ROW())].length === 1, injectedBody);
+ok('and the smuggled rows survive only as text', injectedBody.includes('me \\| qa'), injectedBody);
+
+console.log('\na branch-mode dock has to be the branch that is checked out');
+// With no worktree of its own, nothing pins a dock to its branch. Switching
+// away and gating would bind a verdict to another branch's HEAD, and landing
+// would push a commit the receipt never described.
+fs.writeFileSync(cfgFile,
+  JSON.stringify({ ...JSON.parse(preScorerCfg), profile: 'flow', worktree: 'never' }, null, 2) + '\n');
+git(['add', '-A'], repo);
+if (git(['status', '--porcelain'], repo)) git(['commit', '-qm', 'chore: snapshot'], repo);
+const home420 = git(['rev-parse', '--abbrev-ref', 'HEAD'], repo);
+dd(['start', '420']);
+const d420 = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/420.json'), 'utf8'));
+fs.writeFileSync(path.join(repo, 'inline420.js'), '// here\n');
+git(['add', 'inline420.js'], repo);
+git(['commit', '-qm', 'feat: inline 420'], repo);
+ok('gating works while its branch is checked out', dd(['gate', '420', 'review', '--pass']).status === 0);
+
+git(['switch', '-q', home420], repo);
+const gateAway = dd(['gate', '420', 'qa', '--pass']);
+ok('gating from another branch is refused', gateAway.status !== 0, gateAway.stdout + gateAway.stderr);
+ok('and names both branches', gateAway.stderr.includes(d420.branch) && gateAway.stderr.includes(home420), gateAway.stderr);
+const landAway = dd(['land', '420', '--dry-run']);
+ok('landing from another branch is refused too', landAway.status !== 0, landAway.stdout + landAway.stderr);
+git(['switch', '-q', d420.branch], repo);
+ok('and both work again once you switch back', dd(['land', '420', '--dry-run']).status === 0);
+git(['switch', '-q', home420], repo);
+dd(['clean', '420', '--force']);
+fs.writeFileSync(cfgFile, preScorerCfg);
+git(['add', '-A'], repo);
+if (git(['status', '--porcelain'], repo)) git(['commit', '-qm', 'chore: restore'], repo);
+
+console.log('\nCODEOWNERS: absent and unreadable are different answers');
+// `git show` returns nothing for both, and collapsing them made the fail-closed
+// branch above unreachable: a CODEOWNERS that would not read silently dropped
+// the gates it owned. Existence is now asked separately.
+const headRef = git(['rev-parse', 'HEAD'], repo);
+ok('cat-file finds a file that is there', gitPathExists(headRef, 'drydock.config.json', repo));
+ok('and does not find one that is not', !gitPathExists(headRef, 'CODEOWNERS', repo));
+let ownerRouteWhy = '';
+ok('so a repo with no CODEOWNERS routes normally rather than maximally', (() => {
+  const withRule = JSON.parse(preScorerCfg);
+  withRule.routing = { baseline: ['review'], rules: [{ name: 'payments', codeowners: ['@org/payments'], gates: ['qa'] }] };
+  fs.writeFileSync(cfgFile, JSON.stringify(withRule, null, 2) + '\n');
+  git(['add', '-A'], repo);
+  git(['commit', '-qm', 'chore: codeowners rule'], repo);
+  const started = dd(['start', '421']);
+  const d = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/421.json'), 'utf8'));
+  fs.writeFileSync(path.join(d.worktree, 'plain.js'), '// nothing owned\n');
+  git(['add', '-A'], d.worktree);
+  git(['commit', '-qm', 'feat: plain'], d.worktree);
+  const raw = dd(['route', '421', '--json']);
+  const r = json(raw);
+  ownerRouteWhy = started.stdout + started.stderr + raw.stdout + raw.stderr;
+  dd(['clean', '421', '--force']);
+  fs.writeFileSync(cfgFile, preScorerCfg);
+  git(['add', '-A'], repo);
+  git(['commit', '-qm', 'chore: restore rules'], repo);
+  return started.status === 0 && r && r.maxPath === false && r.gates.join() === 'review';
+})(), ownerRouteWhy);
+
+let ownedRouteWhy = '';
+ok('and a CODEOWNERS that is there is still read from the base branch', (() => {
+  const withRule = JSON.parse(preScorerCfg);
+  withRule.routing = { baseline: ['review'], rules: [{ name: 'payments', codeowners: ['@org/payments'], gates: ['qa'] }] };
+  fs.writeFileSync(cfgFile, JSON.stringify(withRule, null, 2) + '\n');
+  fs.mkdirSync(path.join(repo, '.github'), { recursive: true });
+  fs.writeFileSync(path.join(repo, '.github/CODEOWNERS'), '/src/billing/**  @org/payments\n');
+  git(['add', '-A'], repo);
+  git(['commit', '-qm', 'chore: codeowners'], repo);
+  const base = git(['rev-parse', 'HEAD'], repo);
+  const present = gitPathExists(base, '.github/CODEOWNERS', repo);
+  dd(['start', '422']);
+  const d = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/422.json'), 'utf8'));
+  fs.mkdirSync(path.join(d.worktree, 'src/billing'), { recursive: true });
+  fs.writeFileSync(path.join(d.worktree, 'src/billing/charge.js'), '// owned\n');
+  git(['add', '-A'], d.worktree);
+  git(['commit', '-qm', 'feat: charge'], d.worktree);
+  const raw = dd(['route', '422', '--json']);
+  const r = json(raw);
+  ownedRouteWhy = raw.stdout + raw.stderr;
+  dd(['clean', '422', '--force']);
+  fs.rmSync(path.join(repo, '.github/CODEOWNERS'));
+  fs.writeFileSync(cfgFile, preScorerCfg);
+  git(['add', '-A'], repo);
+  git(['commit', '-qm', 'chore: restore rules again'], repo);
+  return present && r && r.gates.join() === 'review,qa';
+})(), ownedRouteWhy);
 
 console.log('\nclean');
 ok('clean exits 0', dd(['clean', '412', '--force']).status === 0);

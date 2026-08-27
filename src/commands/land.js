@@ -6,6 +6,7 @@ import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
 import { routeOrDie } from './route.js';
 import { ensureScore } from './scorer.js';
+import { assertOnBranch } from './gate.js';
 import { renderReceipt } from './receipt.js';
 
 export default function land(args) {
@@ -23,6 +24,8 @@ export default function land(args) {
 
   const dock = readDock(issue, root);
   if (!dock) die(`No dock for issue #${issue}.`);
+
+  assertOnBranch(dock, 'landing');
 
   if (git.isDirty(dock.worktree)) {
     die('Worktree has uncommitted changes.', 'Commit them inside the dock first.');

@@ -321,10 +321,18 @@ function routeContext(cfg, dock, sha, root) {
   if (rules.some((r) => r.codeowners !== undefined)) {
     // Policy comes from the base branch, never the head. Reading CODEOWNERS out
     // of the dock's own tree would let a pull request disown its own files.
-    const text = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']
-      .map((p) => git.showFile(from, p, dock.worktree))
-      .find((t) => t !== null);
-    ctx.owners = text === undefined ? [] : parseCodeowners(text);
+    //
+    // Absent and unreadable are different answers and must stay different. No
+    // CODEOWNERS at the base means nobody owns anything, which is a real (and
+    // routing-relevant) fact. A CODEOWNERS that exists but will not read is a
+    // failure, and `deriveRoute` fails closed on `owners === null`.
+    ctx.owners = [];
+    for (const p of ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']) {
+      if (!git.pathExists(from, p, dock.worktree)) continue;
+      const text = git.showFile(from, p, dock.worktree);
+      ctx.owners = text === null ? null : parseCodeowners(text);
+      break;
+    }
   }
 
   // Labels move after `drydock start`, and a label that appears later is exactly

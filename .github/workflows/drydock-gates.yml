@@ -350,12 +350,21 @@ jobs:
 
             // CODEOWNERS comes from the base branch too. A pull request that
             // disowns its own files would otherwise route around its reviewers.
+            //
+            // Absent and unreadable must stay different answers: no CODEOWNERS
+            // means nobody owns anything, while one that exists and will not
+            // read has to fail closed. Collapsing them makes the fail-closed
+            // branch unreachable and silently shrinks the derived route — and
+            // because the CLI mirrors this block, both layers would agree.
             let owners = null;
             if ((policy.routing && policy.routing.rules || []).some((r) => r.codeowners !== undefined)) {
-              const raw = ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']
-                .map((p) => tryGit(['show', `origin/${base}:${p}`]))
-                .find((t) => t !== null);
-              owners = parseCodeowners(raw);
+              owners = [];
+              for (const p of ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']) {
+                if (tryGit(['cat-file', '-e', `origin/${base}:${p}`]) === null) continue;
+                const raw = tryGit(['show', `origin/${base}:${p}`]);
+                owners = raw === null ? null : parseCodeowners(raw);
+                break;
+              }
             }
 
             let derived;
