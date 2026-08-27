@@ -4,6 +4,7 @@ import start from './commands/start.js';
 import run from './commands/run.js';
 import route from './commands/route.js';
 import backlog from './commands/backlog.js';
+import preview from './commands/preview.js';
 import gate from './commands/gate.js';
 import land from './commands/land.js';
 import status from './commands/status.js';
@@ -20,6 +21,7 @@ const COMMANDS = {
   route:  [route,  'Show which gates this change earns, and why'],
   backlog:[backlog,'Show what is ready to start, what is blocked, and by what'],
   status: [status, 'Show every dock in flight and its gate state'],
+  preview:[preview,'Serve a dock on a deterministic port so a human can look at it'],
   gate:   [gate,   'Record a gate verdict, bound to the current commit'],
   land:   [land,   'Verify gates, push, and open the pull request'],
   clean:  [clean,  'Remove a dock: worktree, branch, manifest'],

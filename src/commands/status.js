@@ -1,6 +1,7 @@
 import { loadConfig, repoRoot, listDocks } from '../lib/config.js';
 import { log } from '../lib/log.js';
 import * as git from '../lib/git.js';
+import { previewFor } from './preview.js';
 
 /**
  * One dock's gate state, rendered. `backlog` shows the same thing, so this
@@ -42,7 +43,9 @@ export default function status() {
     const profile = d.profile ?? 'dock';
     const workspace = d.workspace ?? 'worktree';
     log.dim(`${d.branch}  ·  ${profile} / ${workspace}${d.workspaceReason ? ` (${d.workspaceReason})` : ''}`);
-    if (d.preview?.url) log.dim(`preview: ${d.preview.url}`);
+    const p = previewFor(root, d.issue);
+    if (p && !p.dead) log.dim(`preview: ${p.url} (serving ${p.sha.slice(0, 8)})`);
+    else if (p) log.dim(`preview: recorded on ${p.url}, but the process is gone`);
   }
   log.raw('');
   log.dim('✓ passed   ✗ failed   · not run   ⚠stale = new commits since the gate passed');

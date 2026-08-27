@@ -111,6 +111,19 @@ What flow mode does give up is the local enforcement layer, which is why
 so if you find it configured without one; do not compensate by adding a local
 check that flow mode is meant not to have.
 
+## The one gate you cannot record
+
+A gate node may declare `actor: "human"` (`"gateNodes": { "po": { "actor":
+"human" } }`). `drydock gate` refuses an `agent:` verdict on it, and that
+refusal is the point: everything else here is agents checking agents, which
+converges on confident agreement. If you are an agent and a `po` gate is
+blocking, say so and stop — do not record it, do not work around it, and do not
+propose removing it.
+
+`drydock preview <issue>` is how a human gets something to look at. Its verdict
+binds to the commit the preview was serving, so if you commit while a preview
+is up, you have invalidated it: say so in your summary.
+
 ## Finishing
 
 Post a summary containing: what changed in one paragraph, every file touched and

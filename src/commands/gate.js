@@ -6,6 +6,7 @@ import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
 import { routeOrDie } from './route.js';
 import { renderReceipt } from './receipt.js';
+import { previewFor } from './preview.js';
 import { resolveActor, isAgent } from '../lib/actor.js';
 
 // Re-exported so callers that already know `gate` as the home of attribution
@@ -60,6 +61,21 @@ export default function gate(args) {
 
   const head = git.headSha(dock.worktree);
   const by = resolveActor(asFlag);
+  const node = cfg.gateNodes?.[name] ?? {};
+
+  // The first gate an agent cannot record. §10.1's "an agent may record a
+  // verdict" is a general permission; a gate node declaring `actor: "human"`
+  // is the exception that makes product acceptance mean something, and it is
+  // checked against the *resolved* actor for the same reason `--as` beats
+  // DRYDOCK_ACTOR — attribution is whatever the command actually resolved.
+  if (node.actor === 'human' && isAgent(by)) {
+    die(
+      `Gate "${name}" only accepts a human verdict, and this one is from ${by}.`,
+      'This gate exists to bring in evidence from outside the agent graph. An agent recording it would defeat the entire point of having it.',
+    );
+  }
+
+  const shown = node.actor === 'human' ? servingSha({ cfg, root, dock, issue, name, head }) : null;
   const sha = reviewedSha({ shaFlag, head, by, worktree: dock.worktree, issue, name, pass });
 
   dock.gates[name] = {
@@ -68,6 +84,7 @@ export default function gate(args) {
     note,
     by,
     at: new Date().toISOString(),
+    ...(shown ? { via: 'preview', port: shown.port } : {}),
   };
   dock.status = fail ? 'changes-requested' : dock.status;
   writeDock(dock, root);
@@ -99,6 +116,41 @@ function refreshReceipt(cfg, dock, root, head) {
   const r = gh.updatePrBody(dock.pr, body, dock.worktree);
   if (r.ok) log.ok('Receipt updated on the pull request');
   else log.warn(`Could not update the PR receipt: ${String(r.err || '').split('\n')[0]}`);
+}
+
+/**
+ * The commit a human-only gate is allowed to judge.
+ *
+ * A product owner approves what they *saw*, and what they saw is whatever the
+ * preview was serving. If the dock committed while they were clicking around,
+ * the running server is stale and so is any approval of it — §4.1, applied to
+ * product acceptance. Refusing here is the difference between a gate and a
+ * decoration.
+ *
+ * With no preview recorded there is nothing to bind to. That is allowed, since
+ * a PO may have looked at the change some other way, but it is said out loud:
+ * an unbound approval is an assertion, not evidence.
+ */
+function servingSha({ cfg, root, dock, issue, name, head }) {
+  const p = previewFor(root, issue);
+  if (!p) {
+    log.warn(`No preview is running for #${issue}, so this verdict is not bound to anything anyone demonstrably saw.`);
+    log.dim(`Start one first and the verdict binds to what it serves: drydock preview ${issue}`);
+    return null;
+  }
+  if (p.dead) {
+    die(
+      `The preview for #${issue} is not running (pid ${p.pid} is gone).`,
+      `It was serving ${p.sha.slice(0, 8)}. Restart it and look again: drydock preview ${issue}`,
+    );
+  }
+  if (p.sha !== head) {
+    die(
+      `The dock advanced past the preview: it is serving ${p.sha.slice(0, 8)}, HEAD is ${head.slice(0, 8)}.`,
+      `Approving "${name}" now would approve commits nobody looked at. Restart the preview and look again: drydock preview stop ${issue} && drydock preview ${issue}`,
+    );
+  }
+  return p;
 }
 
 /**

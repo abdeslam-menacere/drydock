@@ -29,7 +29,13 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
       const state = !g ? '⏳ pending' : '❌ fail';
       return `| ${name} | ${state} | — | ${g ? `${agent ? '🤖' : '👤'} ${g.by}` : '—'} | ${g?.note || 'not recorded yet'} |`;
     }
-    return `| ${name} | ✅ ${g.verdict} | \`${g.sha.slice(0, 8)}\` | ${agent ? '🤖' : '👤'} ${g.by} | ${g.note || '—'} |`;
+    // A human-only gate is bound to what the preview was serving, not to
+    // whatever HEAD happened to be. Those are the same commit at record time
+    // — `gate` refuses otherwise — but the receipt has to say which question
+    // was answered, because "someone looked at this running" and "someone read
+    // this diff" are not the same evidence.
+    const commit = `\`${g.sha.slice(0, 8)}\`${g.via === 'preview' ? ' (preview)' : ''}`;
+    return `| ${name} | ✅ ${g.verdict} | ${commit} | ${agent ? '🤖' : '👤'} ${g.by} | ${g.note || '—'} |`;
   }).join('\n');
 
   // Who recorded a verdict changes what it is worth, so the receipt has to say
@@ -40,6 +46,7 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
     : recorded.some((v) => v.agent)
       ? '🤖 recorded by an agent · 👤 recorded by a human'
       : '👤 every verdict recorded by a human';
+  const previewed = recorded.some((v) => v.g.via === 'preview');
 
   const out = [
     RECEIPT_MARKER,
@@ -66,6 +73,15 @@ export function renderReceipt(dock, route, head, { profile = 'dock' } = {}) {
     );
   }
   if (route.maxPath) out.push('', 'Routing failed closed: maximum path.');
+
+  if (previewed) {
+    out.push(
+      '',
+      '`(preview)` marks a verdict recorded against what a running preview was',
+      'serving — someone looked at the feature, not at the diff. It binds to that',
+      'commit and goes stale with it like any other gate.',
+    );
+  }
 
   if (profile === 'flow') {
     out.push(

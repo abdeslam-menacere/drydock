@@ -13,6 +13,7 @@ import { matchesGlob, globToRegExp } from '../src/lib/glob.js';
 import { deriveRoute, validateRouting, parseCodeowners, ownersFor } from '../src/commands/route.js';
 import { planWorkspace } from '../src/commands/start.js';
 import { parseBlockedBy, buildGraph } from '../src/commands/backlog.js';
+import { portFor, resolveCommand, alive } from '../src/commands/preview.js';
 import { resolveActor, isAgent } from '../src/commands/gate.js';
 import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
@@ -968,6 +969,115 @@ ok('backlog refuses an option it does not have', dd(['backlog', '--all']).status
 const backlogSrc = fs.readFileSync(path.join(sourceRoot, 'src', 'commands', 'backlog.js'), 'utf8');
 ok('backlog reads and never writes',
   !/gh\.(comment|createPr|updatePrBody|mergePr)\b/.test(backlogSrc) && !/writeDock|writeFileSync/.test(backlogSrc));
+
+console.log('\npreview: ports, commands, and liveness');
+ok('the port is deterministic from the issue number',
+  portFor({ preview: { basePort: 4200 } }, 412) === 4612 && portFor({ preview: { basePort: 4200 } }, 412) === 4612);
+ok('two issues do not collide by default', portFor({}, 412) !== portFor({}, 413));
+ok('basePort moves the whole range', portFor({ preview: { basePort: 5000 } }, 412) === 5412);
+ok('a missing preview section still yields a port', typeof portFor({}, 1) === 'number');
+ok('configured command wins',
+  resolveCommand({ preview: { command: 'make serve' } }, repo).command === 'make serve');
+
+const pkgDir = fs.mkdtempSync(path.join(tmp, 'pkg-'));
+ok('no package.json, no guess', resolveCommand({}, pkgDir).command === null);
+fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ scripts: { start: 'node s.js' } }));
+ok('start is detected', resolveCommand({}, pkgDir).command === 'npm start');
+fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ scripts: { dev: 'vite', start: 'node s.js' } }));
+ok('dev wins over start', resolveCommand({}, pkgDir).command === 'npm run dev');
+
+ok('this process is alive', alive(process.pid));
+ok('pid 0 is not a process', !alive(0));
+ok('a pid nobody is using is not alive', !alive(2 ** 22 - 1));
+
+console.log('\npreview: the loop');
+const prevDock = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/412.json'), 'utf8'));
+const prevWt = prevDock.worktree;
+fs.writeFileSync(path.join(prevWt, 'server.js'),
+  'import http from "node:http";\nhttp.createServer((q,s)=>s.end("preview")).listen(process.env.PORT);\n');
+fs.writeFileSync(path.join(prevWt, 'package.json'),
+  JSON.stringify({ name: 'p', type: 'module', scripts: { dev: 'node server.js' } }, null, 2));
+git(['add', '-A'], prevWt);
+git(['commit', '-qm', 'feat: something to look at'], prevWt);
+
+const started = dd(['preview', '412']);
+ok('preview starts', started.status === 0, started.stdout + started.stderr);
+const previewsPath = path.join(repo, '.drydock/tmp/previews.json');
+ok('state is tracked under .drydock/tmp — gitignored, because a pid is not state',
+  fs.existsSync(previewsPath) && gitignore().includes('.drydock/tmp/'));
+const [pv] = JSON.parse(fs.readFileSync(previewsPath, 'utf8'));
+ok('every field the contract names is recorded',
+  ['issue', 'port', 'pid', 'sha', 'startedAt', 'url'].every((k) => pv[k] !== undefined), JSON.stringify(pv));
+ok('the port came from the issue number', pv.port === portFor(readCfg(), 412));
+ok('the URL is the port', pv.url === `http://localhost:${pv.port}`);
+ok('it records the commit it is serving', pv.sha === git(['rev-parse', 'HEAD'], prevWt));
+ok('git never sees it', !git(['status', '--porcelain']).includes('previews.json'));
+ok('the process is really there', alive(pv.pid));
+
+ok('listing shows it', /#412/.test(dd(['preview']).stdout));
+ok('starting twice does not start a second one', (() => {
+  const again = dd(['preview', '412']);
+  return again.status === 0 && /already running/.test(again.stdout)
+    && JSON.parse(fs.readFileSync(previewsPath, 'utf8')).length === 1;
+})());
+
+console.log('\npreview: the po gate is the first one an agent cannot record');
+const poCfg = readCfg();
+fs.writeFileSync(cfgFile, JSON.stringify(
+  { ...poCfg, gates: [...poCfg.gates, 'po'], gateNodes: { po: { actor: 'human' } } }, null, 2) + '\n');
+
+dd(['gate', '412', 'review', '--pass']);
+dd(['gate', '412', 'qa', '--pass']);
+const agentPo = dd(['gate', '412', 'po', '--pass', '--as', 'agent:drydock-qa', '--sha', git(['rev-parse', 'HEAD'], prevWt)]);
+ok('an agent verdict on a human-only gate is refused', agentPo.status !== 0, agentPo.stdout + agentPo.stderr);
+ok('and the refusal says why', /only accepts a human verdict/.test(agentPo.stdout + agentPo.stderr));
+ok('and nothing was recorded',
+  !JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/412.json'), 'utf8')).gates.po);
+ok('DRYDOCK_ACTOR cannot smuggle one in either',
+  ddEnv(['gate', '412', 'po', '--pass'], { DRYDOCK_ACTOR: 'agent:sneaky' }).status !== 0);
+
+const humanPo = ddBare(['gate', '412', 'po', '--pass', '--note', 'looks right'], { USERNAME: 'po-person' });
+ok('a human verdict is accepted', humanPo.status === 0, humanPo.stdout + humanPo.stderr);
+const poVerdict = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/412.json'), 'utf8')).gates.po;
+ok('and binds to the commit the preview was serving', poVerdict.sha === pv.sha);
+ok('and records that it came from a preview', poVerdict.via === 'preview' && poVerdict.port === pv.port);
+ok('the receipt distinguishes it from a diff review',
+  /\|\s*po\s*\|\s*✅ pass\s*\|\s*`[0-9a-f]{8}` \(preview\)/.test(dd(['land', '412', '--dry-run']).stdout),
+  dd(['land', '412', '--dry-run']).stdout);
+ok('and CI can still read the row', [...dd(['land', '412', '--dry-run']).stdout.matchAll(ROW())].length === 3);
+
+// The rule that makes this a gate rather than a decoration.
+fs.appendFileSync(path.join(prevWt, 'server.js'), '// moved on\n');
+git(['commit', '-qam', 'feat: moved on'], prevWt);
+const advanced = ddBare(['gate', '412', 'po', '--pass'], { USERNAME: 'po-person' });
+ok('once the dock advances past the preview, the po gate refuses',
+  advanced.status !== 0, advanced.stdout + advanced.stderr);
+ok('and says which commit is being served vs which is HEAD',
+  /advanced past the preview/.test(advanced.stdout + advanced.stderr));
+ok('an ordinary gate is unaffected by any of this',
+  dd(['gate', '412', 'review', '--pass']).status === 0);
+
+console.log('\npreview: stopping');
+const stopped = dd(['preview', 'stop', '412']);
+ok('stop exits 0', stopped.status === 0, stopped.stdout + stopped.stderr);
+ok('the record is gone', JSON.parse(fs.readFileSync(previewsPath, 'utf8')).length === 0);
+ok('stopping something that is not running is not an error',
+  dd(['preview', 'stop', '412']).status === 0);
+ok('a stale pid is reported, not trusted', (() => {
+  fs.writeFileSync(previewsPath, JSON.stringify([{ ...pv, pid: 2 ** 22 - 1 }], null, 2));
+  const out = dd(['preview']).stdout;
+  return /is gone/.test(out) && JSON.parse(fs.readFileSync(previewsPath, 'utf8')).length === 0;
+})());
+ok('a po verdict against a dead preview is refused, not recorded', (() => {
+  fs.writeFileSync(previewsPath, JSON.stringify([{ ...pv, pid: 2 ** 22 - 1 }], null, 2));
+  const r = ddBare(['gate', '412', 'po', '--pass'], { USERNAME: 'po-person' });
+  fs.writeFileSync(previewsPath, '[]\n');
+  return r.status !== 0 && /not running/.test(r.stdout + r.stderr);
+})());
+ok('preview refuses an option it does not have', dd(['preview', '--all']).status !== 0);
+ok('and an argument it does not understand', dd(['preview', 'restart']).status !== 0);
+
+fs.writeFileSync(cfgFile, JSON.stringify(poCfg, null, 2) + '\n');
 
 console.log('\nclean');
 ok('clean exits 0', dd(['clean', '412', '--force']).status === 0);

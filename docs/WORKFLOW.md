@@ -214,6 +214,29 @@ drydock gate 412 qa --pass
 
 Blocked until review passes. Ordering is enforced.
 
+### 4b. Show it to whoever asked for it
+
+Optional, and only worth it once there is something to look at.
+
+```bash
+drydock preview 412        # http://localhost:4612, and the URL is posted to the issue
+drydock preview            # what is running
+drydock preview stop 412
+```
+
+The port comes from the issue number, so it can be bookmarked. With a `po` gate
+configured (`"gateNodes": { "po": { "actor": "human" } }`) the product owner
+records their verdict against what they saw:
+
+```bash
+drydock gate 412 po --pass --note "matches the issue"
+```
+
+Two refusals make this a gate rather than a demo: an `agent:` actor cannot
+record it at all, and if the dock committed while they were looking, the
+preview is stale and the verdict is refused. Restart the preview and look
+again.
+
 ### 5. Land
 
 ```bash

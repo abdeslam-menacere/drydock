@@ -54,17 +54,24 @@ Three rules are load-bearing:
 
 An absent `routing` block must reproduce v0.1 behaviour exactly. That is why `routing` is deliberately not in `DEFAULTS`.
 
-## Routing (`SPEC.md` §11)
-
-*Which* gates a change must pass is derived from its diff, not asserted by its author and not fixed globally. Three rules govern anything you build here:
+Two more rules from `SPEC.md` §11 govern anything you add here:
 
 - **Routing allocates judgement, never verification.** Tests, lint, and typecheck are not routable and no exemption reaches them. Routing decides how much review and QA attention to spend on top of a floor that always runs.
-- **A route is derived, twice.** It is a pure projection of `(diff at sha, policy at base)` — never stored, always recomputed. CI re-derives it from the *base* branch's config, never the pull request's, and enforces `claimed ⊇ derived`.
 - **Anything the author controls may only add gates, never remove them.** That covers labels, branch names, and the risk scorer alike. The deterministic router is the security boundary; an agent is never the sole detector of a known risk class.
 
-Flow mode (§11.5) moves *when* gates bind — to the pull request instead of to every commit — and `worktree: "auto"` allocates a directory only when concurrency or a pinned process actually needs one. Neither changes *what* binds: SHA binding, ordering, staleness, and no-bypass are identical in every mode, and a failed or stale gate blocks `land` in both. Flow mode has no local enforcement layer left, so `drydock-gates` being a required check is a precondition for it, not a nicety — do not add a local substitute.
+## Profiles and workspaces (`SPEC.md` §11.5)
+
+Flow mode moves *when* gates bind — to the pull request instead of to every commit — and `worktree: "auto"` allocates a directory only when concurrency or a pinned process actually needs one. Neither changes *what* binds: SHA binding, ordering, staleness, and no-bypass are identical in every mode, and a failed or stale gate blocks `land` in both. Flow mode has no local enforcement layer left, so `drydock-gates` being a required check is a precondition for it, not a nicety — do not add a local substitute.
 
 Two consequences for code you write here: nothing may assume a dock has its own directory (`dock.worktree` may be the main checkout), and nothing may assume `DOCK.md` exists.
+
+## Human gates and previews (`SPEC.md` §11.6)
+
+A gate node may declare `actor: "human"`, and `drydock gate` refuses an `agent:` verdict on it. This is the single place agent autonomy does not reach, and it exists because a graph of agents reviewing agents converges on confident agreement — some evidence has to originate outside it. Do not add a way for an agent to record one, and do not add `po` to the default gate list.
+
+The verdict binds to the SHA the **preview was serving**, not to `HEAD`. If the dock advanced, `gate` refuses. This is §4.1 applied to product acceptance and it is the whole point: a product owner approves what they saw.
+
+A preview is ephemeral runtime, not state. Its record lives in gitignored `.drydock/tmp/`, a recorded pid is verified before it is believed, and nothing here may grow into a supervisor or a daemon — `node:child_process` with `detached: true` and `unref()`, no process manager.
 
 ## Testing
 

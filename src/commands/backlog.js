@@ -4,6 +4,12 @@ import * as gh from '../lib/gh.js';
 import * as git from '../lib/git.js';
 import { gateMarks } from './status.js';
 import { routeForDock } from './route.js';
+import { readPreviews, alive } from './preview.js';
+
+/** Preview URLs by issue, for previews that are actually running. */
+function livePreviews(root) {
+  return Object.fromEntries(readPreviews(root).filter((p) => alive(p.pid)).map((p) => [p.issue, p.url]));
+}
 
 // The order is the order of the answer to "what should I start next?" — the
 // things you can pick up, then the things already moving, then the things you
@@ -44,7 +50,7 @@ export function parseBlockedBy(body) {
  * children are" is what it means. Body `blocked-by:` edges are added on top,
  * never instead — a repo may use both.
  */
-export function buildGraph({ issues, docks = [], gates = [], routes = {}, heads = {} }) {
+export function buildGraph({ issues, docks = [], gates = [], routes = {}, heads = {}, previews = {} }) {
   const byNumber = new Map(issues.map((i) => [i.number, i]));
   const dockFor = new Map(docks.map((d) => [d.issue, d]));
 
@@ -84,7 +90,7 @@ export function buildGraph({ issues, docks = [], gates = [], routes = {}, heads 
         profile: dock.profile ?? 'dock',
         workspace: dock.workspace ?? 'worktree',
         gates: dock.gates ?? {},
-        preview: dock.preview?.url ?? null,
+        preview: previews[dock.issue] ?? null,
       },
     };
   });
@@ -175,7 +181,7 @@ export default function backlog(args = []) {
     try { routes[d.issue] = routeForDock(cfg, d, heads[d.issue], root).gates; } catch { /* fall back to cfg.gates */ }
   }
 
-  const graph = buildGraph({ issues, docks, gates: cfg.gates, routes, heads });
+  const graph = buildGraph({ issues, docks, gates: cfg.gates, routes, heads, previews: livePreviews(root) });
   const shown = readyOnly ? graph.nodes.filter((n) => n.state === 'ready') : graph.nodes;
 
   if (asJson) {

@@ -1,6 +1,7 @@
 import { loadConfig, repoRoot, readDock, dockPath, listDocks } from '../lib/config.js';
 import { log, die } from '../lib/log.js';
 import * as git from '../lib/git.js';
+import { stopPreview, previewFor } from './preview.js';
 import fs from 'node:fs';
 
 export default function clean(args) {
@@ -23,6 +24,13 @@ export default function clean(args) {
       log.warn(`#${d.issue}: uncommitted changes — skipped (use --force)`);
       continue;
     }
+    // Removing the branch out from under a running server leaves a process
+    // holding a port and serving code that no longer exists anywhere.
+    if (previewFor(root, d.issue)) {
+      const r = stopPreview(root, d.issue);
+      log.dim(`#${d.issue}: preview ${r.stopped ? 'stopped' : 'record dropped'}`);
+    }
+
     // A branch-mode dock has no worktree to remove, and its branch may still be
     // the one checked out here — deleting that would put the repo on a detached
     // HEAD, so it is left for the developer who is standing in it.

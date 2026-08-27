@@ -274,6 +274,32 @@ reported and every issue in it is held blocked, because nothing in a cycle can
 ever become ready. `--ready` narrows to what you can pick up; `--json` emits
 the graph for an orchestrator. It writes nothing.
 
+**A gate an agent cannot record.** Everything above is agents checking agents,
+which converges on confident agreement. Some evidence has to come from outside
+that graph. `drydock preview 412` runs the dock on a deterministic port and
+posts the URL to the issue, so a product owner's entire interface is a link:
+
+```bash
+drydock preview 412        # http://localhost:4612 — serving 84896226
+drydock gate 412 po --pass --note "matches what I asked for"
+```
+
+```jsonc
+"gates": ["review", "qa", "po"],
+"gateNodes": { "po": { "actor": "human" } }
+```
+
+`actor: "human"` means `drydock gate` **refuses** an `agent:` verdict on that
+gate — the one place agent autonomy does not reach. And the verdict binds to
+the SHA the preview was *serving*, not to `HEAD`: if the dock committed while
+the PO was clicking around, the running server is stale and the gate refuses
+rather than approving commits nobody looked at. The receipt marks the row
+`(preview)`, because "someone watched this run" and "someone read this diff"
+are different evidence.
+
+It is a local process on a local port. Nothing is deployed, tunnelled, or
+exposed, and the pid file is gitignored — a pid is not state.
+
 ## Works with your agent
 
 The behavioural contracts live in `.github/`, which is simultaneously:
@@ -339,8 +365,8 @@ receipt, and the CI receipt check rejecting stale receipts, missing receipts,
 copied receipts, and partial gates.
 
 **The whole CLI surface that exists today** is `init`, `config`, `start`, `run`,
-`route`, `backlog`, `status`, `gate`, `land`, and `clean`. Any other command in
-this repo's documentation is marked **Not shipped yet — #N**.
+`route`, `backlog`, `status`, `preview`, `gate`, `land`, and `clean`. Any other
+command in this repo's documentation is marked **Not shipped yet — #N**.
 
 ### Documented but not shipped yet
 
