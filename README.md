@@ -165,6 +165,31 @@ issue text and the diff and nothing else — not the developer's account of its
 own work. A reviewer reading the author's explanation is a rubber stamp with
 extra steps.
 
+**Heaviness is earned, not chosen.** Add a `routing` block and each dock's gates
+are derived from its own diff against the base branch — a docs-only change can
+skip everything, a change to `src/billing/` can require more. Absent that block,
+every dock takes every gate exactly as before.
+
+```bash
+drydock route 412          # Required: review → qa   (baseline)
+drydock route 413          # Required: (none)        (exempt: docs-only)
+```
+
+Three properties make it something other than a way to skip review:
+
+- **The route is a projection, never stored.** It is recomputed from the diff
+  every time, by the CLI and independently by CI. Nothing to tamper with.
+- **Policy is read from the base branch.** A pull request cannot shorten the
+  route that judges it. Touch `drydock.config.json`, a workflow, or `CODEOWNERS`
+  and the diff takes the maximum path automatically.
+- **It fails closed.** An unreadable diff, a binary file, a rename, or more than
+  `maxFiles` paths all fall back to every gate. Routing allocates judgement; it
+  never weakens verification.
+
+An exemption must cover the *whole* diff — one stray file and it doesn't apply.
+That awkwardness is deliberate: it is what stops a real change from riding along
+inside a documentation PR.
+
 ## Works with your agent
 
 The behavioural contracts live in `.github/`, which is simultaneously:
@@ -230,7 +255,7 @@ receipt, and the CI receipt check rejecting stale receipts, missing receipts,
 copied receipts, and partial gates.
 
 **The whole CLI surface that exists today** is `init`, `config`, `start`, `run`,
-`status`, `gate`, `land`, and `clean`. Any other command in this repo's
+`route`, `status`, `gate`, `land`, and `clean`. Any other command in this repo's
 documentation is marked **Not shipped yet — #N**.
 
 ### Documented but not shipped yet

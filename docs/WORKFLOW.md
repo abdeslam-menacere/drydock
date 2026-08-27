@@ -90,6 +90,35 @@ Run the gates yourself from there. The steps below are identical either way — 
 gates do not care who records the verdict, only that it is fresh, ordered, and
 not self-issued.
 
+### 2b. Check what this dock actually owes
+
+```bash
+drydock route 412
+```
+
+Without a `routing` block in `drydock.config.json` this always answers "every
+gate" and you can ignore it. With one, the gates are derived from the dock's diff
+against the base branch:
+
+```
+Route for #413 @ 4f2a91cd
+  Required: (none)
+  Why: every file matched the "docs-only" exemption
+
+  exempt: docs-only → (no gates)
+    README.md
+    docs/WORKFLOW.md
+```
+
+The route is recomputed every time — it is never stored, and CI derives it again
+independently from the same diff. Policy is read from the base branch, so a dock
+cannot shorten its own route by editing the config; a diff that touches
+`drydock.config.json`, `.github/workflows/**`, or `CODEOWNERS` takes every gate
+automatically, as does anything binary, renamed, oversized, or unreadable.
+
+An exemption has to cover the whole diff. One source file in a docs-only pull
+request and the exemption stops applying — which is the entire point.
+
 ### 3. Review gate
 
 ```bash

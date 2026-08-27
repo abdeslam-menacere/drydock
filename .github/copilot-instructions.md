@@ -51,6 +51,7 @@ Gate verdicts bind to a commit SHA and go stale on any new commit. That is the
 core of the product.
 
 - Gates run in order: `review` → `qa`. QA is refused until review passes.
+- Which gates apply is derived from the diff (`drydock route <issue>`), not chosen. Policy is read from the base branch, so a pull request cannot shorten its own route; touching `drydock.config.json`, a workflow, or `CODEOWNERS` takes the maximum path. Routing decides *how much judgement*, never *how much verification*.
 - If you commit after a gate passes, it goes stale and must be re-run. Working
   as intended.
 - **Do not add an override, `--skip-gates`, or `--force` that bypasses

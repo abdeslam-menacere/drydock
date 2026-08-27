@@ -40,6 +40,48 @@ export function resolveCommit(ref, cwd) {
   return r.ok && r.out ? r.out.trim() : null;
 }
 
+/**
+ * Files changed between `base` and `head`, as `{ status, path, from }`.
+ *
+ * `-z` because a path may contain spaces, quotes or newlines and the NUL
+ * framing is the only output git guarantees is unambiguous. Returns null when
+ * the diff cannot be read or cannot be parsed — callers must treat that as
+ * "unknown", never as "nothing changed".
+ */
+export function diffFiles(base, head, cwd) {
+  const r = tryRun('git', ['diff', '--name-status', '-z', '--find-renames', `${base}...${head}`], { cwd });
+  if (!r.ok) return null;
+
+  const parts = r.out.split('\0').filter((s) => s !== '');
+  const files = [];
+  for (let i = 0; i < parts.length;) {
+    const status = parts[i++];
+    // R and C carry two paths; everything else carries one.
+    if (/^[RC]/i.test(status)) {
+      const from = parts[i++];
+      const to = parts[i++];
+      if (from === undefined || to === undefined) return null;
+      files.push({ status, path: to, from });
+    } else {
+      const p = parts[i++];
+      if (p === undefined) return null;
+      files.push({ status, path: p, from: null });
+    }
+  }
+  return files;
+}
+
+/** Paths git reports as binary in this diff, or null if it cannot be read. */
+export function diffBinaryPaths(base, head, cwd) {
+  const r = tryRun('git', ['diff', '--numstat', '--find-renames', `${base}...${head}`], { cwd });
+  if (!r.ok) return null;
+  return r.out
+    .split('\n')
+    .filter((l) => l.startsWith('-\t-\t'))
+    .map((l) => l.slice(4).trim())
+    .filter(Boolean);
+}
+
 export function pushBranch(branch, cwd) {
   return tryRun('git', ['push', '-u', 'origin', branch], { cwd });
 }

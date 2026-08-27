@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { pendingQuestions } from '../src/lib/config.js';
 import { QUESTIONS, SCHEMA_VERSION } from '../src/lib/questions.js';
 import { parseArgs } from '../src/lib/args.js';
+import { matchesGlob, globToRegExp } from '../src/lib/glob.js';
+import { deriveRoute } from '../src/commands/route.js';
 import { resolveActor, isAgent } from '../src/commands/gate.js';
 import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
@@ -485,6 +487,149 @@ const stale = dd(['land', '412']);
 ok('land refuses stale gates', stale.status !== 0);
 ok('names the stale gate', (stale.stdout + stale.stderr).includes('STALE'));
 ok('status shows stale', dd(['status']).stdout.includes('stale'));
+
+console.log('\nrouting: glob matching');
+ok('* stays inside one segment', matchesGlob('*.md', 'a.md') && !matchesGlob('*.md', 'docs/a.md'));
+ok('**/ matches zero segments', matchesGlob('**/*.md', 'a.md'));
+ok('**/ matches nested segments', matchesGlob('**/*.md', 'docs/deep/a.md'));
+ok('a trailing ** matches everything below', matchesGlob('docs/**', 'docs/a/b.md'));
+ok('and does not escape its prefix', !matchesGlob('docs/**', 'src/a.js'));
+ok('{a,b} alternates', matchesGlob('*.{md,txt}', 'a.txt') && !matchesGlob('*.{md,txt}', 'a.js'));
+ok('a dot is a literal dot', !matchesGlob('a.md', 'axmd'));
+ok('? matches one non-separator', matchesGlob('a?.md', 'ab.md') && !matchesGlob('a?.md', 'a/.md'));
+ok('backslashes are normalised', matchesGlob('docs/**', 'docs\\a\\b.md'));
+ok('an unbalanced brace is refused, not guessed',
+  (() => { try { globToRegExp('a{b'); return false; } catch { return true; } })());
+
+console.log('\nrouting: the route');
+const G = { gates: ['review', 'qa'] };
+const f = (...p) => p.map((x) => ({ status: 'M', path: x, from: null }));
+const R = {
+  gates: ['review', 'qa'],
+  routing: {
+    baseline: ['review'],
+    exempt: [{ name: 'docs-only', only: true, paths: ['**/*.md'], gates: [] }],
+  },
+};
+
+ok('absent routing keeps every gate', deriveRoute(G, f('src/a.js')).gates.join() === 'review,qa');
+ok('and reports itself unrouted', deriveRoute(G, f('src/a.js')).routed === false);
+ok('baseline applies when no exemption covers the diff',
+  deriveRoute(R, f('src/a.js')).gates.join() === 'review');
+ok('a docs-only diff takes the exemption', deriveRoute(R, f('README.md', 'docs/a.md')).gates.length === 0);
+ok('and names it', deriveRoute(R, f('README.md')).exemption.name === 'docs-only');
+// The awkwardness is the point: an exemption must cover the whole diff.
+ok('one stray file voids the exemption',
+  deriveRoute(R, f('README.md', 'src/a.js')).gates.join() === 'review');
+ok('an exemption without only:true never applies',
+  deriveRoute({ gates: ['review', 'qa'], routing: { baseline: ['review'], exempt: [{ name: 'x', paths: ['**/*.md'], gates: [] }] } },
+    f('README.md')).gates.join() === 'review');
+ok('an empty diff cannot be exempted', deriveRoute(R, []).gates.join() === 'review');
+
+// Fail closed. Anything unreadable, unusual, or self-referential takes everything.
+ok('an unreadable diff takes the maximum path', deriveRoute(R, null).maxPath);
+ok('failed binary detection takes the maximum path', deriveRoute(R, f('a.md'), null).maxPath);
+ok('a binary file takes the maximum path', deriveRoute(R, f('a.md'), ['logo.png']).maxPath);
+ok('a rename takes the maximum path',
+  deriveRoute(R, [{ status: 'R100', path: 'b.md', from: 'a.md' }]).maxPath);
+ok('an oversized diff takes the maximum path',
+  deriveRoute({ ...R, routing: { ...R.routing, maxFiles: 2 } }, f('a.md', 'b.md', 'c.md')).maxPath);
+
+// Routing protects the rules that decide routing. Not configurable.
+ok('touching drydock.config.json takes the maximum path', deriveRoute(R, f('drydock.config.json')).maxPath);
+ok('touching a workflow takes the maximum path', deriveRoute(R, f('.github/workflows/ci.yml')).maxPath);
+ok('touching CODEOWNERS takes the maximum path', deriveRoute(R, f('.github/CODEOWNERS')).maxPath);
+ok('a root CODEOWNERS counts too', deriveRoute(R, f('CODEOWNERS')).maxPath);
+ok('an exemption cannot cover a protected file',
+  deriveRoute(R, f('README.md', 'drydock.config.json')).gates.join() === 'review,qa');
+
+ok('gates keep their declared order, not the order written in policy',
+  deriveRoute({ gates: ['review', 'qa'], routing: { baseline: ['qa', 'review'] } }, f('a.js')).gates.join() === 'review,qa');
+ok('a gate name that is not declared is dropped',
+  deriveRoute({ gates: ['review', 'qa'], routing: { baseline: ['nope'] } }, f('a.js')).gates.length === 0);
+
+console.log('\nrouting: CI derives the same route');
+// The server layer is the one that counts and it cannot import this code, so it
+// carries a copy. Extract that copy and prove it still agrees — the same
+// anti-drift trick the receipt contract uses above.
+const blockMatch = wf.match(/--- drydock:derive-route[^\n]*\n([\s\S]*?)\/\/ --- end drydock:derive-route/);
+ok('workflow carries the derive-route block', !!blockMatch,
+  'expected a `// --- drydock:derive-route ... // --- end drydock:derive-route` block');
+const mirrored = new Function('cfg', 'diff', 'binaryPaths',
+  `${blockMatch[1]}\nreturn deriveRoute(cfg, diff, binaryPaths);`);
+const routeCases = [
+  [G, f('src/a.js'), []],
+  [R, f('src/a.js'), []],
+  [R, f('README.md', 'docs/a.md'), []],
+  [R, f('README.md', 'src/a.js'), []],
+  [R, f('drydock.config.json'), []],
+  [R, f('.github/workflows/ci.yml'), []],
+  [R, f('CODEOWNERS'), []],
+  [R, [], []],
+  [R, null, []],
+  [R, f('a.md'), ['logo.png']],
+  [R, f('a.md'), null],
+  [R, [{ status: 'R100', path: 'b.md', from: 'a.md' }], []],
+  [{ ...R, routing: { ...R.routing, maxFiles: 2 } }, f('a.md', 'b.md', 'c.md'), []],
+  [{ gates: ['review', 'qa'], routing: { baseline: ['qa', 'review'] } }, f('a.js'), []],
+];
+const disagreement = routeCases.find(([c, d, b]) =>
+  JSON.stringify(mirrored(c, d, b)) !== JSON.stringify(deriveRoute(c, d, b)));
+ok('the workflow derives exactly what the CLI derives', !disagreement,
+  disagreement ? `diverged on ${JSON.stringify(disagreement[1])}` : '');
+
+console.log('\nrouting: a real dock');
+dd(['start', '416']);
+const d416 = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/416.json'), 'utf8'));
+const savedCfg = fs.readFileSync(cfgFile, 'utf8');
+const routedCfg = JSON.parse(savedCfg);
+routedCfg.routing = {
+  baseline: ['review'],
+  exempt: [{ name: 'docs-only', only: true, paths: ['**/*.md'], gates: [] }],
+};
+fs.writeFileSync(cfgFile, JSON.stringify(routedCfg, null, 2) + '\n');
+
+fs.writeFileSync(path.join(d416.worktree, 'NOTES.md'), '# notes\n');
+git(['add', '-A'], d416.worktree);
+git(['commit', '-qm', 'docs: notes'], d416.worktree);
+
+const r416 = dd(['route', '416', '--json']);
+const rj = json(r416);
+ok('route exits 0', r416.status === 0, r416.stdout + r416.stderr);
+ok('a docs-only dock earns no gates', rj && rj.gates.length === 0, r416.stdout);
+ok('and names the exemption that decided it', rj && rj.exemption.name === 'docs-only');
+
+const landDocs = dd(['land', '416', '--dry-run']);
+ok('a fully exempt dock lands with no verdicts at all', landDocs.status === 0, landDocs.stdout + landDocs.stderr);
+ok('the receipt claims an empty route', /\*\*drydock-route:v1\*\*\s*``/.test(landDocs.stdout), landDocs.stdout);
+ok('and records which exemption was used', landDocs.stdout.includes('Exemption used: `docs-only`'), landDocs.stdout);
+
+// Add one code file and the same dock falls back to baseline. Nothing is stored,
+// so this is just the projection being recomputed.
+fs.writeFileSync(path.join(d416.worktree, 'app.js'), '// code\n');
+git(['add', '-A'], d416.worktree);
+git(['commit', '-qm', 'feat: app'], d416.worktree);
+ok('one code file drops the exemption', json(dd(['route', '416', '--json'])).gates.join() === 'review');
+ok('and land now demands review', dd(['land', '416', '--dry-run']).status !== 0);
+ok('review alone satisfies the baseline route', dd(['gate', '416', 'review', '--pass']).status === 0);
+const landBaseline = dd(['land', '416', '--dry-run']);
+ok('qa is never required on this route', landBaseline.status === 0, landBaseline.stdout + landBaseline.stderr);
+ok('and the receipt claims exactly that route',
+  /\*\*drydock-route:v1\*\*\s*`review`/.test(landBaseline.stdout), landBaseline.stdout);
+
+// A pull request must not be able to shorten the route that judges it.
+fs.writeFileSync(path.join(d416.worktree, 'drydock.config.json'),
+  JSON.stringify({ ...routedCfg, routing: { baseline: [], exempt: [] } }, null, 2) + '\n');
+git(['add', '-A'], d416.worktree);
+git(['commit', '-qm', 'chore: rewrite my own routing'], d416.worktree);
+const selfEdit = json(dd(['route', '416', '--json']));
+ok('a diff that edits routing policy takes the maximum path', selfEdit.maxPath === true, JSON.stringify(selfEdit));
+ok('and earns every gate regardless of what it wrote', selfEdit.gates.join() === 'review,qa');
+ok('so land refuses until qa runs too', dd(['land', '416', '--dry-run']).status !== 0);
+
+fs.writeFileSync(cfgFile, savedCfg);
+ok('removing the routing block restores v0.1 behaviour',
+  json(dd(['route', '416', '--json'])).routed === false);
 
 console.log('\nclean');
 ok('clean exits 0', dd(['clean', '412', '--force']).status === 0);

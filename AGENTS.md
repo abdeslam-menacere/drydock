@@ -40,6 +40,18 @@ Two rules make an agent verdict worth something — the reviewer and QA agents m
 
 How much of the loop runs unattended is configuration, not code. Do not hardcode an autonomy level, and do not remove the fully-manual path.
 
+## Routing
+
+Which gates a dock owes is derived from its diff against the base branch, not chosen globally. `deriveRoute` in `src/commands/route.js` is a pure projection — never persist a route, never let a dock carry one. It is mirrored verbatim into `.github/workflows/drydock-gates.yml` inside `// --- drydock:derive-route ---` markers because the workflow is scaffolded into consuming repos and cannot import this source; `test/smoke.test.js` extracts that copy and asserts the two agree. If you change one, change both.
+
+Three rules are load-bearing:
+
+- **Policy comes from the base branch**, never the PR head. A pull request must not be able to shorten the route that judges it.
+- **Fail closed.** Unreadable diff, binary file, rename, oversize, or a touch of `drydock.config.json` / `.github/workflows/**` / `CODEOWNERS` → every gate.
+- **Routing allocates judgement, never verification.** SHA binding, ordering, and staleness apply identically on every route.
+
+An absent `routing` block must reproduce v0.1 behaviour exactly. That is why `routing` is deliberately not in `DEFAULTS`.
+
 ## Routing (`SPEC.md` §11)
 
 *Which* gates a change must pass is derived from its diff, not asserted by its author and not fixed globally. Three rules govern anything you build here:
