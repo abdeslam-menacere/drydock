@@ -17,7 +17,7 @@ post your summary, and stop at the review gate.
 
 Every rule below follows from it. A change that weakens it needs a decision
 recorded in `SPEC.md`, not a commit message. See `SPEC.md` §10 for the autonomy
-decision.
+decision and §11 for the heaviness decision.
 
 ## Where am I
 
@@ -64,6 +64,26 @@ core of the product.
   is only worth something if the reviewer and QA agents never saw the
   developer's summary or session — issue text and `git diff` only. Do not
   review your own work.
+
+## Routing
+
+*Which* gates apply is derived from the diff, not chosen. `SPEC.md` §11 is the
+record; none of it ships in `v0.1.0`. If you are implementing any part of it:
+
+- **Routing allocates judgement, never verification.** Tests and lint always
+  run. No exemption reaches them. Routing only decides how much review and QA
+  attention to spend on top.
+- **A route is never stored.** It is a pure projection of `(diff at sha, policy
+  at base)`, recomputed every time — which is what makes it compose with gate
+  staleness without special cases.
+- **CI re-derives it from the base branch**, never from the pull request, and
+  checks `claimed ⊇ derived`. A PR that could supply the rules judging it would
+  make the whole mechanism decorative.
+- **Anything the author controls may only add gates, never remove them** —
+  labels, branch names, and the risk scorer alike.
+
+Do not build a route-shortening path of any kind. That is the `--force` this
+project refuses, wearing a better name.
 
 ## Finishing
 

@@ -26,7 +26,7 @@ Business logic belongs in `commands/`. `lib/` stays dumb.
 
 ## The invariant
 
-One issue → one branch → one worktree → one agent → policy-gated merge. Any change that weakens it needs a decision recorded in `SPEC.md`, not a commit message. The move from human-gated to configurable autonomy is recorded in `SPEC.md` §10.
+One issue → one branch → one worktree → one agent → policy-gated merge. Any change that weakens it needs a decision recorded in `SPEC.md`, not a commit message. The move from human-gated to configurable autonomy is recorded in `SPEC.md` §10; making process cost proportional to blast radius is recorded in §11.
 
 ## Gates
 
@@ -35,6 +35,16 @@ Gate verdicts bind to a commit SHA and go stale on any new commit. This is the c
 Agents may record verdicts, attributed `agent:<role>` — today through the `DRYDOCK_ACTOR` environment variable, which `gate` stamps into the receipt (a `--as` flag arrives in #3). That is a change of *who*, not of *what*: ordering, SHA binding, and staleness apply identically. Two rules make an agent verdict worth something — the reviewer and QA agents must be context-independent from the developer agent, and the whole trail lands in the issue comments and the PR receipt.
 
 How much of the loop runs unattended is configuration, not code. Do not hardcode an autonomy level, and do not remove the fully-manual path.
+
+## Routing (`SPEC.md` §11)
+
+*Which* gates a change must pass is derived from its diff, not asserted by its author and not fixed globally. Three rules govern anything you build here:
+
+- **Routing allocates judgement, never verification.** Tests, lint, and typecheck are not routable and no exemption reaches them. Routing decides how much review and QA attention to spend on top of a floor that always runs.
+- **A route is derived, twice.** It is a pure projection of `(diff at sha, policy at base)` — never stored, always recomputed. CI re-derives it from the *base* branch's config, never the pull request's, and enforces `claimed ⊇ derived`.
+- **Anything the author controls may only add gates, never remove them.** That covers labels, branch names, and the risk scorer alike. The deterministic router is the security boundary; an agent is never the sole detector of a known risk class.
+
+Flow mode (§11.5) moves *when* gates bind, not whether. SHA binding, ordering, and no-bypass are identical in every mode.
 
 ## Testing
 
