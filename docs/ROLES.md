@@ -14,7 +14,7 @@ Apply that test:
 | Principal Reviewer | Yes — blocks QA | Keep |
 | QA Validator | Yes — blocks the PR | Keep |
 | Orchestrator | Yes — owns gate *ordering and isolation*, and stops the loop when a gate fails | **Keep** |
-| Product Owner | No — the human writes the issue | **Cut** |
+| Product Owner | Yes, once there is something to look at — `po`, and only a human may record it | **Keep the human, cut the agent** |
 | Scrum Master | No — ceremony and status reporting; the orchestrator that replaced it owns gates, a Scrum Master does not | **Cut** |
 | Release Manager | No — that's branch protection and CI | **Cut** |
 | Architect | Sometimes — but BMAD's `bmm` module already does this at planning time | **Delegate to BMAD** |
@@ -26,6 +26,17 @@ Everything that failed the test was ceremony: a persona that produces a document
 The GitHub issue is the requirement. You wrote it. An agent that expands your issue into a PRD which you then approve has not removed work from you — it has added a review step and a new place for requirements to drift. Worse, it launders your uncertainty into confident prose, which is exactly the failure the review gate exists to catch.
 
 Keep the human as PO. It's the one role that cannot be delegated, because it's the one that owns the definition of "correct."
+
+### What changed: authority, not ceremony
+
+The argument above was never against the *person*, only against a persona that writes documents. The test a role has to pass is "does it own a gate", and until there was something for a product owner to look at, they owned nothing — so the table said cut.
+
+`drydock preview` gives them something to look at, and the `po` gate gives them a verdict with a consequence. That is authority, not ceremony, and it flips the row. Two rules make it real rather than decorative:
+
+- **A gate node may declare `actor: "human"`, and `drydock gate` refuses an `agent:` verdict on it.** This is the one gate `SPEC.md` §10.1 does not extend to. A graph of agents reviewing agents converges on confident agreement; some evidence has to originate outside it, and this is where.
+- **The verdict binds to the SHA the preview was serving, not to `HEAD`.** A product owner approves what they *saw*. If the dock committed while they were clicking around, the running server is stale and so is the approval — `SPEC.md` §4.1 applied to product acceptance.
+
+There is still no Product Owner *agent*, for exactly the reason above. What there is now is a gate only a human can pass.
 
 ## The specific case for an Orchestrator agent
 

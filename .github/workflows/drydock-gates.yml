@@ -6,7 +6,7 @@ name: Drydock Gates
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -18,15 +18,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
 
       - name: Check gates passed against this exact commit
         uses: actions/github-script@v7
         with:
           script: |
+            const { execFileSync } = require('node:child_process');
+
             const body = context.payload.pull_request.body || '';
             const head = context.payload.pull_request.head.sha;
+            const base = context.payload.pull_request.base.ref;
+            const labels = (context.payload.pull_request.labels || []).map((l) => l.name);
 
-            // The receipt contract. test/smoke.test.js reads these two literals
+            // The receipt contract. test/smoke.test.js reads these literals
             // straight out of this file and asserts the CLI's rendered receipt
             // matches them, so the workflow and `drydock land` cannot drift.
             // The marker is plain bold text because the GitHub MCP server strips
@@ -34,6 +39,7 @@ jobs:
             // so an older CLI checked out against this workflow keeps working.
             const RECEIPT_MARKER = /^[ \t]*(?:\*\*drydock-receipt:v1\*\*|<!--[ \t]*drydock-receipt:v1[ \t]*-->)[ \t]*\r?$/m;
             const ROW_RE = /^\|\s*([a-z0-9-]+)\s*\|\s*✅\s*pass\s*\|\s*`([0-9a-f]{7,40})`/gim;
+            const ROUTE_RE = /^[ \t]*\*\*drydock-route:v1\*\*[ \t]*`([^`]*)`/gm;
 
             if (!RECEIPT_MARKER.test(body)) {
               core.setFailed(
@@ -43,26 +49,394 @@ jobs:
               return;
             }
 
-            const required = (process.env.DRYDOCK_GATES || 'review,qa').split(',');
+            const tryGit = (args) => {
+              try { return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 26 }); }
+              catch { return null; }
+            };
+
+            tryGit(['fetch', '--no-tags', 'origin', base]);
+
+            // Policy is read from the BASE branch, never the head. If a pull
+            // request could supply the rules that judge it, routing would be
+            // decorative. This is the load-bearing line of the whole check.
+            let baseCfg = null;
+            const rawCfg = tryGit(['show', `origin/${base}:drydock.config.json`]);
+            if (rawCfg !== null) { try { baseCfg = JSON.parse(rawCfg); } catch { baseCfg = null; } }
+
+            const rawNames = tryGit(['diff', '--name-status', '-z', '--find-renames', `origin/${base}...${head}`]);
+            const rawNum = tryGit(['diff', '--numstat', '--find-renames', `origin/${base}...${head}`]);
+
+            let files = null;
+            if (rawNames !== null) {
+              const parts = rawNames.split('\0').filter((s) => s !== '');
+              files = [];
+              for (let i = 0; i < parts.length;) {
+                const status = parts[i++];
+                if (/^[RC]/i.test(status)) {
+                  const from = parts[i++], to = parts[i++];
+                  if (to === undefined) { files = null; break; }
+                  files.push({ status, path: to, from });
+                } else {
+                  const p = parts[i++];
+                  if (p === undefined) { files = null; break; }
+                  files.push({ status, path: p, from: null });
+                }
+              }
+            }
+
+            const binary = rawNum === null ? null : rawNum.split('\n')
+              .filter((l) => l.startsWith('-\t-\t'))
+              .map((l) => l.slice(4).trim())
+              .filter(Boolean);
+
+            let added = null, deleted = null;
+            if (rawNum !== null) {
+              added = 0; deleted = 0;
+              for (const line of rawNum.split('\n')) {
+                if (!line.trim() || line.startsWith('-\t-\t')) continue;
+                const [a, d] = line.split('\t');
+                if (!Number.isFinite(Number(a)) || !Number.isFinite(Number(d))) { added = null; deleted = null; break; }
+                added += Number(a); deleted += Number(d);
+              }
+            }
+
+            // --- drydock:derive-route (mirrored by test/smoke.test.js) ---
+            // A behavioural mirror of src/commands/route.js. The smoke test
+            // extracts this block, runs it against the same cases as the CLI,
+            // and fails if the two ever disagree. Server-side is the layer that
+            // counts, so it cannot depend on drydock being installed.
+            const PROTECTED_PATHS = [
+              'drydock.config.json',
+              '.github/workflows/**',
+              'CODEOWNERS',
+              '**/CODEOWNERS',
+            ];
+            const DEFAULT_MAX_FILES = 200;
+            const SUBTRACTIVE_KEYS = ['only', 'replace', 'subtract', 'remove', 'exempt'];
+
+            class RoutingConfigError extends Error {}
+
+            function globToRegExp(glob) {
+              const s = String(glob);
+              let re = '', depth = 0;
+              for (let i = 0; i < s.length;) {
+                const c = s[i];
+                if (c === '*') {
+                  if (s[i + 1] === '*') {
+                    const atSegmentStart = i === 0 || s[i - 1] === '/';
+                    if (atSegmentStart && s[i + 2] === '/') { re += '(?:[^/]*\\/)*'; i += 3; continue; }
+                    re += '.*'; i += 2; continue;
+                  }
+                  re += '[^/]*'; i += 1; continue;
+                }
+                if (c === '?') { re += '[^/]'; i += 1; continue; }
+                if (c === '{') { re += '(?:'; depth += 1; i += 1; continue; }
+                if (c === '}' && depth > 0) { re += ')'; depth -= 1; i += 1; continue; }
+                if (c === ',' && depth > 0) { re += '|'; i += 1; continue; }
+                re += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); i += 1;
+              }
+              if (depth !== 0) throw new Error(`Unbalanced { } in pattern: ${s}`);
+              return new RegExp(`^${re}$`);
+            }
+            const matchesAny = (globs, p) =>
+              (globs || []).some((g) => globToRegExp(g).test(String(p).replace(/\\/g, '/')));
+
+            function validateRouting(cfg) {
+              const routing = cfg.routing;
+              if (!routing) return;
+              const all = new Set(cfg.gates || []);
+              const bad = (msg) => { throw new RoutingConfigError(msg); };
+              const checkGates = (names, where) => {
+                if (names === undefined) return;
+                if (!Array.isArray(names)) bad(`routing.${where}.gates must be a list of gate names.`);
+                for (const n of names) {
+                  if (!all.has(n)) bad(`routing.${where} names gate "${n}", which is not in gates: [${[...all].join(', ')}].`);
+                }
+              };
+              checkGates(routing.baseline, 'baseline');
+              if (routing.exempt !== undefined && !Array.isArray(routing.exempt)) bad('routing.exempt must be a list.');
+              for (const [i, e] of (routing.exempt || []).entries()) {
+                const where = `exempt[${i}]${e && e.name ? ` (${e.name})` : ''}`;
+                checkGates(e && e.gates, where);
+                if (e && 'label' in e) bad(`routing.${where} matches on a label. Labels may only add gates, never remove them.`);
+              }
+              if (routing.rules !== undefined && !Array.isArray(routing.rules)) bad('routing.rules must be a list.');
+              for (const [i, r] of (routing.rules || []).entries()) {
+                const where = `rules[${i}]${r && r.name ? ` (${r.name})` : ''}`;
+                if (!r || typeof r !== 'object') bad(`routing.${where} must be an object.`);
+                checkGates(r.gates, where);
+                if (!Array.isArray(r.gates) || r.gates.length === 0) {
+                  bad(`routing.${where} adds no gates. A rule that adds nothing cannot be what was meant.`);
+                }
+                const subtractive = SUBTRACTIVE_KEYS.find((k) => k in r);
+                if (subtractive) {
+                  bad(`routing.${where} uses "${subtractive}". Rules are additive; only routing.exempt may reduce the route.`);
+                }
+                const conditions = ['paths', 'label', 'labels', 'filesTouched', 'linesChanged', 'deletionRatio', 'codeowners'];
+                if (!conditions.some((k) => r[k] !== undefined)) {
+                  bad(`routing.${where} has no condition, so it would match every diff. Give it one of: ${conditions.join(', ')}.`);
+                }
+              }
+            }
+
+            function parseCodeowners(text) {
+              if (!text) return [];
+              const out = [];
+              for (const raw of String(text).split('\n')) {
+                const line = raw.replace(/#.*$/, '').trim();
+                if (!line) continue;
+                const [pattern, ...owners] = line.split(/\s+/);
+                if (!pattern || owners.length === 0) continue;
+                out.push({ pattern, owners });
+              }
+              return out;
+            }
+
+            function codeownerGlobs(pattern) {
+              let g = pattern;
+              if (g.endsWith('/')) return [`${g.replace(/^\//, '')}**`];
+              if (g.startsWith('/')) g = g.slice(1);
+              else if (!g.includes('/')) return [`**/${g}`, `**/${g}/**`];
+              return [g, `${g}/**`];
+            }
+
+            function ownersFor(entries, filePath) {
+              let owners = [];
+              for (const e of entries) {
+                if (matchesAny(codeownerGlobs(e.pattern), filePath)) owners = e.owners;
+              }
+              return owners;
+            }
+
+            function normalise(names, all) {
+              const want = new Set(names || []);
+              return all.filter((g) => want.has(g));
+            }
+
+            function ruleMatches(rule, s) {
+              const why = [];
+              let files = s.paths;
+
+              if (rule.paths !== undefined) {
+                const hit = s.paths.filter((p) => matchesAny(rule.paths, p));
+                if (!hit.length) return null;
+                files = hit;
+                why.push(`paths: ${hit.length} file${hit.length > 1 ? 's' : ''}`);
+              }
+
+              if (rule.filesTouched !== undefined) {
+                if (s.diff.length < Number(rule.filesTouched)) return null;
+                why.push(`${s.diff.length} files ≥ ${rule.filesTouched}`);
+              }
+
+              if (rule.linesChanged !== undefined) {
+                const total = (s.added || 0) + (s.deleted || 0);
+                if (total < Number(rule.linesChanged)) return null;
+                why.push(`${total} lines ≥ ${rule.linesChanged}`);
+              }
+
+              if (rule.deletionRatio !== undefined) {
+                const total = (s.added || 0) + (s.deleted || 0);
+                const ratio = total === 0 ? 0 : (s.deleted || 0) / total;
+                if (ratio < Number(rule.deletionRatio)) return null;
+                why.push(`${Math.round(ratio * 100)}% deletions ≥ ${Math.round(Number(rule.deletionRatio) * 100)}%`);
+              }
+
+              const wantLabels = rule.labels !== undefined
+                ? rule.labels
+                : (rule.label === undefined ? undefined : [rule.label]);
+              if (wantLabels !== undefined) {
+                const have = new Set(s.labels || []);
+                const hit = wantLabels.filter((l) => have.has(l));
+                if (!hit.length) return null;
+                why.push(`label: ${hit.join(', ')}`);
+              }
+
+              if (rule.codeowners !== undefined) {
+                const want = Array.isArray(rule.codeowners) ? new Set(rule.codeowners) : null;
+                const owned = files.filter((p) => {
+                  const owners = ownersFor(s.owners || [], p);
+                  return want ? owners.some((o) => want.has(o)) : owners.length > 0;
+                });
+                if (!owned.length) return null;
+                files = owned;
+                why.push(want ? `owned by ${[...want].join(', ')}` : 'covered by CODEOWNERS');
+              }
+
+              return { files, why: why.join('; ') };
+            }
+
+            function deriveRoute(cfg, diff, binaryPaths, ctx) {
+              validateRouting(cfg);
+              if (ctx === undefined) ctx = {};
+
+              const all = [...(cfg.gates || [])];
+              const routing = cfg.routing;
+              if (!routing) {
+                return { routed: false, gates: all, maxPath: false,
+                  reason: 'routing is not configured — every gate applies', exemption: null, matched: [] };
+              }
+              const max = (reason) => ({ routed: true, gates: all, maxPath: true, reason, exemption: null, matched: [] });
+
+              if (diff === null) return max('the diff could not be read');
+              if (binaryPaths === null) return max('binary detection failed');
+              if (binaryPaths.length) return max(`the diff contains binary files (${binaryPaths[0]})`);
+
+              const renamed = diff.find((f) => /^[RC]/i.test(f.status));
+              if (renamed) return max(`the diff contains a rename or copy (${renamed.from} → ${renamed.path})`);
+
+              const maxFiles = Number(routing.maxFiles) > 0 ? Number(routing.maxFiles) : DEFAULT_MAX_FILES;
+              if (diff.length > maxFiles) return max(`${diff.length} files changed, over the ${maxFiles} limit`);
+
+              const paths = diff.map((f) => f.path);
+              const protectedHit = paths.find((p) => matchesAny(PROTECTED_PATHS, p));
+              if (protectedHit) return max(`the diff changes routing policy itself (${protectedHit})`);
+
+              const rules = routing.rules || [];
+              const needsStats = rules.some((r) => r.linesChanged !== undefined || r.deletionRatio !== undefined);
+              if (needsStats && (ctx.added === null || ctx.added === undefined)) {
+                return max('a size rule applies but the diff statistics could not be read');
+              }
+              const needsOwners = rules.some((r) => r.codeowners !== undefined);
+              if (needsOwners && ctx.owners === null) {
+                return max('a CODEOWNERS rule applies but CODEOWNERS could not be read');
+              }
+
+              const matched = [];
+
+              let exemption = null;
+              for (const entry of routing.exempt || []) {
+                if (!entry || entry.only !== true) continue;
+                if (!diff.length) continue;
+                if (!paths.every((p) => matchesAny(entry.paths, p))) continue;
+                exemption = { name: entry.name || 'unnamed', paths: entry.paths || [], files: paths };
+                matched.push({ source: 'exempt', name: exemption.name, gates: normalise(entry.gates || [], all), files: paths });
+                break;
+              }
+              if (!exemption) {
+                const baseline = normalise(routing.baseline === undefined ? all : routing.baseline, all);
+                matched.push({ source: 'baseline', name: 'baseline', gates: baseline, files: paths });
+              }
+
+              for (const [i, rule] of rules.entries()) {
+                const hit = ruleMatches(rule, Object.assign({ diff, paths }, ctx));
+                if (!hit) continue;
+                matched.push({
+                  source: 'rule',
+                  name: rule.name || `rules[${i}]`,
+                  gates: normalise(rule.gates || [], all),
+                  files: hit.files,
+                  why: hit.why,
+                });
+              }
+
+              const union = new Set(matched.flatMap((m) => m.gates));
+              const gates = normalise([...union], all);
+              const rulesFired = matched.filter((m) => m.source === 'rule');
+
+              let reason = exemption
+                ? `every file matched the "${exemption.name}" exemption`
+                : 'baseline — no exemption covered the whole diff';
+              if (rulesFired.length) {
+                reason += `, plus ${rulesFired.length} rule${rulesFired.length > 1 ? 's' : ''}: ${rulesFired.map((m) => m.name).join(', ')}`;
+              }
+
+              return { routed: true, gates, maxPath: false, reason, exemption, matched };
+            }
+            // --- end drydock:derive-route ---
+
+            const gates = (baseCfg && baseCfg.gates) || (process.env.DRYDOCK_GATES || 'review,qa').split(',');
+            const policy = { gates, routing: baseCfg && baseCfg.routing };
+
+            // CODEOWNERS comes from the base branch too. A pull request that
+            // disowns its own files would otherwise route around its reviewers.
+            //
+            // Absent and unreadable must stay different answers: no CODEOWNERS
+            // means nobody owns anything, while one that exists and will not
+            // read has to fail closed. Collapsing them makes the fail-closed
+            // branch unreachable and silently shrinks the derived route — and
+            // because the CLI mirrors this block, both layers would agree.
+            let owners = null;
+            if ((policy.routing && policy.routing.rules || []).some((r) => r.codeowners !== undefined)) {
+              owners = [];
+              for (const p of ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']) {
+                // The type, not mere existence: `cat-file -e` says yes to a
+                // directory named CODEOWNERS, and `git show` then prints a tree
+                // listing that parses into junk owners owning nothing — which
+                // disables every codeowners rule instead of failing closed.
+                const type = tryGit(['cat-file', '-t', `origin/${base}:${p}`]);
+                if (type === null || type.trim() !== 'blob') continue;
+                const raw = tryGit(['show', `origin/${base}:${p}`]);
+                owners = raw === null ? null : parseCodeowners(raw);
+                break;
+              }
+            }
+
+            let derived;
+            try {
+              derived = deriveRoute(policy, files, binary, { labels, owners, added, deleted });
+            } catch (e) {
+              core.setFailed(
+                `The routing policy on ${base} is invalid, so no route can be derived:\n  ${e.message}`
+              );
+              return;
+            }
+
             const rows = [...body.matchAll(ROW_RE)];
-            const seen = new Map(rows.map(r => [r[1], r[2]]));
+            const seen = new Map(rows.map((r) => [r[1], r[2]]));
+
+            // An older receipt has no route line; treat the gates it presents as
+            // its claim, which reproduces the pre-routing check exactly.
+            //
+            // More than one is refused outright. No version of `land` can emit
+            // two — `gh pr edit --body` is a full replace and the body is built
+            // from fixed literals with sanitised values — so a second one means
+            // either a hand-edited body or a cell that escaped sanitisation.
+            // Picking one of them silently reinterprets the claim in whichever
+            // direction the parser happens to prefer; refusing turns an
+            // accidental paste into a loud failure and a deliberate one into a
+            // dead end. Fail-closed in both directions, which "first wins" and
+            // "last wins" each only manage in one.
+            const routeMatches = [...body.matchAll(ROUTE_RE)];
+            if (routeMatches.length > 1) {
+              core.setFailed(
+                `This PR body carries ${routeMatches.length} \`drydock-route:v1\` lines, and a receipt claims exactly one route.\n` +
+                'Re-render it with `drydock land <issue>` rather than editing the body by hand.'
+              );
+              return;
+            }
+            const routeLine = routeMatches[0] || null;
+            const claimed = routeLine
+              ? routeLine[1].split(',').map((s) => s.trim()).filter(Boolean)
+              : [...seen.keys()];
 
             const problems = [];
-            for (const gate of required) {
-              const sha = seen.get(gate);
-              if (!sha) problems.push(`gate "${gate}" is missing or did not pass`);
+
+            // Containment, not equality: #26's risk scorer may add gates, and a
+            // probabilistic contributor will not reproduce itself here. CI
+            // verifies the deterministic floor and ignores the ceiling.
+            for (const g of derived.gates) {
+              if (!claimed.includes(g)) {
+                problems.push(`this diff requires "${g}" (${derived.reason}) but the receipt claims only: ${claimed.join(', ') || '(none)'}`);
+              }
+            }
+
+            // Anything claimed is binding, whoever added it.
+            for (const g of claimed) {
+              const sha = seen.get(g);
+              if (!sha) problems.push(`gate "${g}" is missing or did not pass`);
               else if (!head.startsWith(sha)) {
-                problems.push(`gate "${gate}" is STALE — passed at ${sha}, PR head is ${head.slice(0,8)}`);
+                problems.push(`gate "${g}" is STALE — passed at ${sha}, PR head is ${head.slice(0, 8)}`);
               }
             }
 
             if (problems.length) {
               core.setFailed(
-                'Drydock gates not satisfied:\n' + problems.map(p => '  • ' + p).join('\n') +
+                'Drydock gates not satisfied:\n' + problems.map((p) => '  • ' + p).join('\n') +
                 '\n\nRe-run the gates against the current head, then `drydock land` again.'
               );
             } else {
-              core.notice(`All Drydock gates green at ${head.slice(0,8)}`);
+              core.notice(`All Drydock gates green at ${head.slice(0, 8)} — route: ${claimed.join(', ') || '(none)'}`);
             }
 
   scope-check:

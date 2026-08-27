@@ -61,10 +61,15 @@ critical_actions:
     findings in the verdict; off posts nothing and returns the same verdict to
     the orchestrator.
   - >
-    Record exactly one verdict against the reviewed commit with
-    "drydock gate <issue> review --pass --as agent:drydock-reviewer --note
-    \"<reason>\"" or "drydock gate <issue> review --fail --as
-    agent:drydock-reviewer --note \"<reason>\"".
+    Capture the commit SHA before you read anything, and record exactly one
+    verdict against it with "drydock gate <issue> review --pass --as
+    agent:drydock-reviewer --sha <reviewed> --note \"<reason>\"" or "drydock
+    gate <issue> review --fail --as agent:drydock-reviewer --sha <reviewed>
+    --note \"<reason>\"".
+  - >
+    If Drydock answers "the dock moved", the developer committed while you were
+    reading and your review no longer describes HEAD. Re-read the new commit and
+    record against that. Never re-run with the SHA the error reports.
   - "Never modify files outside this worktree — sibling docks are live."
   - >
     Never merge or start QA in this context. After recording the review gate,

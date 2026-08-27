@@ -4,11 +4,15 @@ import { parseArgs } from '../lib/args.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
-import { isAgent } from './gate.js';
+import { routeOrDie } from './route.js';
+import { ensureScore } from './scorer.js';
+import { assertOnBranch } from './start.js';
+import { renderReceipt } from './receipt.js';
 
 export default function land(args) {
   const root = repoRoot();
   const cfg = loadConfig(root);
+  const flow = cfg.profile === 'flow';
 
   // A mistyped `--dry-run` used to be discarded, turning a preview into a real
   // push, a real PR and — now — armed auto-merge.
@@ -21,30 +25,60 @@ export default function land(args) {
   const dock = readDock(issue, root);
   if (!dock) die(`No dock for issue #${issue}.`);
 
+  assertOnBranch(dock, 'landing');
+
   if (git.isDirty(dock.worktree)) {
     die('Worktree has uncommitted changes.', 'Commit them inside the dock first.');
   }
 
   const head = git.headSha(dock.worktree);
 
+  // The ceiling, before the floor is read. A proposal binds to a SHA like a
+  // verdict does, so a stale one is worth nothing and gets recomputed here —
+  // the last point at which adding a gate can still change the outcome. If the
+  // scorer is off, broken or slow, this is a no-op and the deterministic route
+  // stands: it can only ever have added.
+  ensureScore(cfg, dock, head, root);
+
+  // What this change earns, derived from its own diff. A pure projection —
+  // never stored, recomputed here so a revert relaxes the route for free.
+  const route = routeOrDie(cfg, dock, head, root);
+
   // --- Gate verification. This is the whole point of Drydock. ---
+  //
+  // Flow mode moves *where* this happens, not *whether*. The route still has to
+  // be satisfied at the PR head, in order, against the commit each reviewer
+  // examined — but the check that enforces it is `drydock-gates` on the server,
+  // so `land` opens the PR with a receipt whose rows are pending. A pending row
+  // is a row CI refuses; there is no path here that merges anything unreviewed.
   const problems = [];
-  for (const name of cfg.gates) {
+  const pending = [];
+  for (const name of route.gates) {
     const g = dock.gates[name];
-    if (!g) problems.push(`"${name}" has not run`);
+    if (!g) (flow ? pending : problems).push(`"${name}" has not run`);
     else if (g.verdict !== 'pass') problems.push(`"${name}" did not pass`);
     else if (g.sha !== head) problems.push(`"${name}" is STALE (passed @ ${g.sha.slice(0, 8)}, HEAD is ${head.slice(0, 8)})`);
   }
   if (problems.length) {
     log.err(`Dock #${issue} cannot land:`);
     problems.forEach((p) => log.dim('• ' + p));
+    log.dim(`Route: ${route.gates.join(' → ') || '(none)'} — ${route.reason}`);
     log.dim('Re-run the failing gate against the current HEAD.');
     process.exit(1);
   }
 
-  log.ok(`All gates green @ ${head.slice(0, 8)}`);
+  if (pending.length) {
+    log.warn(`Opening the PR with ${pending.length} gate${pending.length > 1 ? 's' : ''} still to run:`);
+    pending.forEach((p) => log.dim('• ' + p));
+    log.dim('Flow mode: the gates bind to the pull request. It cannot merge until');
+    log.dim(`each one is recorded against the PR head — run: drydock gate ${issue} <gate> --pass --sha <head>`);
+    warnIfUnenforced(cfg, dock);
+  } else {
+    log.ok(`All gates green @ ${head.slice(0, 8)}`);
+  }
+  if (route.routed) log.dim(`Route: ${route.gates.join(' → ') || '(none)'} — ${route.reason}`);
 
-  const receipt = renderReceipt(dock, cfg, head);
+  const receipt = renderReceipt(dock, route, head, { profile: cfg.profile });
   const body = `Closes #${issue}\n\n${receipt}`;
 
   if (cli.flags.has('--dry-run')) {
@@ -79,40 +113,6 @@ export default function land(args) {
   log.dim(`Clean up when merged: drydock clean ${issue}`);
 }
 
-// Plain bold text, not an HTML comment: the GitHub MCP server strips HTML
-// comments from PR bodies, which silently destroyed the marker CI gates on.
-// `.github/workflows/drydock-gates.yml` must detect exactly this line.
-const RECEIPT_MARKER = '**drydock-receipt:v1**';
-
-function renderReceipt(dock, cfg, head) {
-  const verdicts = cfg.gates.map((n) => ({ name: n, g: dock.gates[n], agent: isAgent(dock.gates[n].by) }));
-  const rows = verdicts.map(({ name, g, agent }) =>
-    `| ${name} | ✅ ${g.verdict} | \`${g.sha.slice(0, 8)}\` | ${agent ? '🤖' : '👤'} ${g.by} | ${g.note || '—'} |`
-  ).join('\n');
-
-  // Who recorded a verdict changes what it is worth, so the receipt has to say
-  // so at a glance. Kept out of the first three columns, which CI parses.
-  const legend = verdicts.some((v) => v.agent)
-    ? '🤖 recorded by an agent · 👤 recorded by a human'
-    : '👤 every verdict recorded by a human';
-
-  return [
-    RECEIPT_MARKER,
-    '',
-    '### Drydock gate receipt',
-    '',
-    '| Gate | Verdict | Commit | By | Note |',
-    '|---|---|---|---|---|',
-    rows,
-    '',
-    legend,
-    '',
-    `Head at land time: \`${head}\``,
-    '',
-    '<sub>Generated by Drydock. CI verifies these gates match the PR head SHA.</sub>',
-  ].join('\n');
-}
-
 function prOpenedComment(dock, url, head) {
   return [
     '### Drydock: pull request opened',
@@ -123,6 +123,28 @@ function prOpenedComment(dock, url, head) {
     '',
     '<sub>Every gate passed against this commit. The receipt is in the PR body.</sub>',
   ].join('\n');
+}
+
+/**
+ * Say so, loudly, when flow mode has nothing enforcing it.
+ *
+ * Flow mode makes §4.3's claim literally true — the server layer is the only
+ * layer left, because `land` no longer holds the PR back. A repo running it
+ * without `drydock-gates` as a required check therefore has *no* enforcement,
+ * which is strictly worse than dock mode rather than merely lighter.
+ */
+function warnIfUnenforced(cfg, dock) {
+  const checks = gh.requiredChecks(dock.base, dock.worktree);
+  if (checks === null) {
+    log.warn(`Could not read branch protection on ${dock.base} — cannot confirm the gates are enforced.`);
+    return;
+  }
+  if (!checks.some((c) => /drydock/i.test(c))) {
+    log.err(`NOTHING IS ENFORCING THESE GATES: ${dock.base} has no \`drydock-gates\` required check.`);
+    log.dim(`Required checks found: ${checks.join(', ') || '(none)'}`);
+    log.dim('In flow mode `land` opens the PR before the gates run, so that check IS the gate.');
+    log.dim('Add it in branch protection, or switch back to profile "dock".');
+  }
 }
 
 /**

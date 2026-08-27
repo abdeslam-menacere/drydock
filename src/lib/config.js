@@ -18,6 +18,28 @@ export const DEFAULTS = {
   baseBranch: 'main',
   // Gates that must pass, in order, before `drydock land` will open a PR.
   gates: ['review', 'qa'],
+  // Per-gate attributes, keyed by gate name. `gates` stays a flat ordered list
+  // of names because every consumer reads it that way, including the CI mirror;
+  // anything a gate declares about itself lives here instead.
+  //   "po": { "actor": "human" }  → an `agent:` verdict is refused. SPEC §11.6.
+  gateNodes: {},
+  // A preview is a local dev server on a deterministic port, so a product owner
+  // can look at the running feature. Ephemeral runtime, gitignored, never a
+  // daemon — SPEC §5's "state lives in git" holds because none of this is state.
+  preview: { command: null, basePort: 4200 },
+  // An agent that may add gates a deterministic rule did not anticipate, and
+  // can never remove one. Off by default: it is a contributor, not a floor.
+  // `model` must be set and should not be the developer's — agents on one model
+  // agree with each other at scale. SPEC §11.4.
+  scorer: { enabled: false, command: null, model: null, timeoutMs: 120000 },
+  // 'dock' binds gates to every commit in an isolated worktree; 'flow' binds
+  // them to the pull request and lets CI be the only enforcement layer. The
+  // binding point moves, the binding does not. SPEC §11.5.
+  profile: 'dock',
+  // 'always' | 'auto' | 'never'. A worktree solves two problems: concurrent
+  // checkouts, and long-running processes pinned to a branch. `auto` allocates
+  // one when either problem is actually present, and a plain branch otherwise.
+  worktree: 'always',
   // Open an editor window per dock. Set to null for headless/CI use.
   editor: 'code',
   // Which agent CLI to hand the dock to. Informational in v1.

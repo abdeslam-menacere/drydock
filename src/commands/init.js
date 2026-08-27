@@ -91,11 +91,13 @@ function ensureGitignore(root) {
  */
 function mergeGate(root, cfg) {
   log.head('Merge gate');
+  const flow = cfg.profile === 'flow';
 
   if (!gh.available()) {
     log.warn('gh not found — cannot verify branch protection.');
     log.dim(`Check by hand: auto-merge enabled, and \`drydock-gates\` REQUIRED on ${cfg.baseBranch}.`);
     log.dim('Auto-merge without a required check merges immediately and unverified.');
+    if (flow) flowUnenforced(cfg);
     return;
   }
 
@@ -108,12 +110,28 @@ function mergeGate(root, cfg) {
   if (checks === null) {
     log.err(`No readable branch protection on ${cfg.baseBranch}`);
     log.dim('Make `drydock-gates` a required status check before enabling auto-merge.');
+    if (flow) flowUnenforced(cfg);
   } else if (checks.includes('drydock-gates')) {
     log.ok('`drydock-gates` is a required status check');
+    if (flow) log.ok('Flow mode is enforced: the PR cannot merge until the receipt is complete.');
   } else {
     log.err(`\`drydock-gates\` is NOT required on ${cfg.baseBranch}`);
     log.dim('Without it, auto-merge lands unverified work the instant a PR opens.');
+    if (flow) flowUnenforced(cfg);
   }
+}
+
+/**
+ * In dock mode an unenforced repo still has `land` refusing to open a PR until
+ * the gates pass locally. Flow mode removes that layer on purpose, so without
+ * the required check there is nothing left at all — strictly worse than dock
+ * mode rather than merely lighter. It is worth an unmissable warning.
+ */
+function flowUnenforced(cfg) {
+  log.err('FLOW MODE IS UNENFORCED IN THIS REPOSITORY.');
+  log.dim(`profile is "flow", so \`drydock land\` opens the PR before the gates run.`);
+  log.dim(`\`drydock-gates\` on ${cfg.baseBranch} is the only thing that would stop an unreviewed merge.`);
+  log.dim('Add it as a required status check, or set profile back to "dock".');
 }
 
 function check(label, ok, hint) {
