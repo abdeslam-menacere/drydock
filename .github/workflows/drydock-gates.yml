@@ -447,9 +447,10 @@ jobs:
         with: { fetch-depth: 0 }
 
       # `${{ }}` is textual substitution into the script *before* bash parses it,
-      # so the quotes here would be the attacker's to close. Git allows `"`, `$`,
-      # `;` and backticks in a branch name — only spaces are rejected — so a base
-      # branch called `main" ;id; x="` executes `id` in the job that polices the
+      # so the quotes here would be the attacker's to close. Git permits `"`, `$`,
+      # `;` and backticks in a branch name — it rejects spaces, `~ ^ : ? * [ \`,
+      # control characters and `..`, none of which an injection needs — so a base
+      # branch called `main";id;"` executes `id` in the job that polices the
       # gates. Passing the value through `env:` hands bash a variable it expands
       # but never parses as script, which closes the class rather than the case.
       - name: Warn on unusually wide diffs
