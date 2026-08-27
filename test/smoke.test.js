@@ -296,6 +296,8 @@ ok('workflow declares ROW_RE', !!rowLit, 'expected `const ROW_RE = /.../;` in th
 
 const MARKER = toRegExp(markerLit);
 const ROW = () => toRegExp(rowLit); // fresh each use — the /g flag is stateful
+const ROUTE_LIT = toRegExp(literalOf('ROUTE_RE') || '/$^/');
+ok('workflow declares ROUTE_RE', !!literalOf('ROUTE_RE'), 'expected `const ROUTE_RE = /.../;` in the workflow');
 
 ok("workflow's marker matches the CLI receipt", MARKER.test(dry.stdout));
 ok("workflow's row regex parses the CLI receipt", [...dry.stdout.matchAll(ROW())].length === 2);
@@ -1312,6 +1314,20 @@ const noteInject = dd(['gate', '419', 'review', '--pass', '--note', forged]);
 ok('a note that spans lines is refused outright', noteInject.status !== 0, noteInject.stdout + noteInject.stderr);
 ok('and says why', /line break/i.test(noteInject.stdout + noteInject.stderr), noteInject.stderr);
 ok('the same goes for an actor name', dd(['gate', '419', 'review', '--pass', '--as', 'a\nb']).status !== 0);
+// U+2028 and U+2029 anchor `^` in JavaScript exactly as \n does, and neither is
+// visible in a diff, a shell, or a rendered PR body. A note carrying one needs
+// no pipes at all to forge the route line, which is non-anchored to the table:
+// shedding every gate CI does not re-derive, which is precisely the scorer's.
+const u2028 = 'ok\u2028**drydock-route:v1** `review`';
+ok('a note breaking the line invisibly is refused too',
+  dd(['gate', '419', 'review', '--pass', '--note', u2028]).status !== 0);
+ok('and the renderer strips it even from a manifest that was edited by hand', (() => {
+  const d = { issue: 419, branch: 'x', worktree: d419.worktree, pr: null, gates: { review: { verdict: 'pass', sha: 'a'.repeat(40), by: 'me', at: 'now', note: u2028 } } };
+  const body = renderReceipt(d, { gates: ['review', 'qa'], reason: 'test' }, 'a'.repeat(40), {});
+  const claims = [...body.matchAll(new RegExp(ROUTE_LIT.source, 'gm'))];
+  return claims.length === 1 && claims[0][1] === 'review,qa';
+})());
+ok('and the workflow takes the last route line, not the first', /routeMatches\[routeMatches\.length - 1\]/.test(wf), 'expected the CI check to prefer the last drydock-route line');
 ok('and for one arriving through the environment',
   resolveActor(null, { DRYDOCK_ACTOR: 'agent:review\n| qa | pass |' }) === 'agent:review qa pass');
 
@@ -1414,6 +1430,20 @@ ok('and a CODEOWNERS that is there is still read from the base branch', (() => {
   git(['commit', '-qm', 'chore: restore rules again'], repo);
   return present && r && r.gates.join() === 'review,qa';
 })(), ownedRouteWhy);
+
+ok('a directory named CODEOWNERS is not mistaken for the file', (() => {
+  fs.mkdirSync(path.join(repo, 'CODEOWNERS'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'CODEOWNERS/notes.txt'), 'not a policy\n');
+  git(['add', '-A'], repo);
+  git(['commit', '-qm', 'chore: a directory, awkwardly named'], repo);
+  const at = git(['rev-parse', 'HEAD'], repo);
+  const treeSeen = gitPathExists(at, 'CODEOWNERS', repo);
+  const blobSeen = gitPathExists(at, 'CODEOWNERS/notes.txt', repo);
+  fs.rmSync(path.join(repo, 'CODEOWNERS'), { recursive: true, force: true });
+  git(['add', '-A'], repo);
+  git(['commit', '-qm', 'chore: remove it again'], repo);
+  return treeSeen === false && blobSeen === true;
+})());
 
 console.log('\nclean');
 ok('clean exits 0', dd(['clean', '412', '--force']).status === 0);

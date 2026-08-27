@@ -13,18 +13,24 @@ export const ROUTE_MARKER = '**drydock-route:v1**';
 /**
  * Make a value safe to put in a table cell.
  *
- * A receipt is not prose, it is the artifact CI parses — with a line-anchored
- * regex, one row per line. So a note or an actor name containing a newline does
- * not merely look wrong: it emits *additional rows*, and CI reads them as real
- * verdicts. That is a forged gate, recordable by anyone allowed to record any
- * gate, and in flow mode `drydock-gates` is the only layer left to fool.
+ * A receipt is not prose, it is the artifact CI parses — with line-anchored
+ * regexes, one row per line. So a note or an actor name containing a line break
+ * does not merely look wrong: it emits *additional lines*, and CI reads a line
+ * as a verdict or as the route claim. That is a forged gate, recordable by
+ * anyone allowed to record any gate, and in flow mode `drydock-gates` is the
+ * only layer left to fool.
  *
- * Whitespace collapses and `|` is escaped, here rather than only at the point a
- * verdict is recorded, because this function owns the invariant "one row is one
- * line" and a manifest can be edited by hand.
+ * "Line break" means every terminator JavaScript's `^` anchors after, which is
+ * more than `\n` and `\r`: U+2028 and U+2029 do it too, are invisible in a diff
+ * and in a rendered PR body, and survive a naive `[\r\n]` filter. Escaping `|`
+ * is what defeats a forged table row; stripping the terminators is what defeats
+ * a forged `drydock-route:v1` line, which needs no pipes at all.
+ *
+ * Done here rather than only where a verdict is recorded, because this function
+ * owns the invariant "one row is one line" and a manifest is a plain file.
  */
 function cell(value) {
-  return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\|/g, '\\|').trim();
+  return String(value ?? '').replace(/[\r\n\u2028\u2029\t]+/g, ' ').replace(/\|/g, '\\|').trim();
 }
 
 /**

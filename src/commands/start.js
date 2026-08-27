@@ -145,8 +145,11 @@ export function assertOnBranch(dock, verb) {
   if ((dock.workspace ?? 'worktree') === 'worktree') return;
   const here = git.currentBranch(dock.worktree);
   if (here === dock.branch) return;
+  // `--abbrev-ref HEAD` answers the literal string "HEAD" when detached, which
+  // as an error message reads like a branch called HEAD.
+  const where = !here || here === 'HEAD' ? 'a detached HEAD' : `\`${here}\``;
   die(
-    `Dock #${dock.issue} is on \`${dock.branch}\`, but \`${here || 'a detached HEAD'}\` is checked out.`,
+    `Dock #${dock.issue} is on \`${dock.branch}\`, but ${where} is checked out.`,
     `This dock has no worktree of its own, so ${verb} here would use the wrong commit. Run: git switch ${dock.branch}`,
   );
 }

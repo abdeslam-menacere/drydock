@@ -39,7 +39,7 @@ jobs:
             // so an older CLI checked out against this workflow keeps working.
             const RECEIPT_MARKER = /^[ \t]*(?:\*\*drydock-receipt:v1\*\*|<!--[ \t]*drydock-receipt:v1[ \t]*-->)[ \t]*\r?$/m;
             const ROW_RE = /^\|\s*([a-z0-9-]+)\s*\|\s*✅\s*pass\s*\|\s*`([0-9a-f]{7,40})`/gim;
-            const ROUTE_RE = /^[ \t]*\*\*drydock-route:v1\*\*[ \t]*`([^`]*)`/m;
+            const ROUTE_RE = /^[ \t]*\*\*drydock-route:v1\*\*[ \t]*`([^`]*)`/gm;
 
             if (!RECEIPT_MARKER.test(body)) {
               core.setFailed(
@@ -360,7 +360,12 @@ jobs:
             if ((policy.routing && policy.routing.rules || []).some((r) => r.codeowners !== undefined)) {
               owners = [];
               for (const p of ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']) {
-                if (tryGit(['cat-file', '-e', `origin/${base}:${p}`]) === null) continue;
+                // The type, not mere existence: `cat-file -e` says yes to a
+                // directory named CODEOWNERS, and `git show` then prints a tree
+                // listing that parses into junk owners owning nothing — which
+                // disables every codeowners rule instead of failing closed.
+                const type = tryGit(['cat-file', '-t', `origin/${base}:${p}`]);
+                if (type === null || type.trim() !== 'blob') continue;
                 const raw = tryGit(['show', `origin/${base}:${p}`]);
                 owners = raw === null ? null : parseCodeowners(raw);
                 break;
@@ -382,7 +387,16 @@ jobs:
 
             // An older receipt has no route line; treat the gates it presents as
             // its claim, which reproduces the pre-routing check exactly.
-            const routeLine = body.match(ROUTE_RE);
+            //
+            // The LAST match wins, not the first. `land` writes the route line
+            // below the table, so anything appearing above it came out of a
+            // cell — and a cell is caller-supplied text. Taking the first match
+            // would let a smuggled line outrank the one Drydock actually wrote,
+            // which is a route-shrinking primitive: every gate in `claimed` but
+            // not in `derived` (scorer additions, label-derived gates) would be
+            // shed without CI noticing.
+            const routeMatches = [...body.matchAll(ROUTE_RE)];
+            const routeLine = routeMatches.length ? routeMatches[routeMatches.length - 1] : null;
             const claimed = routeLine
               ? routeLine[1].split(',').map((s) => s.trim()).filter(Boolean)
               : [...seen.keys()];

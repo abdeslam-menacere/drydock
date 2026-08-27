@@ -44,14 +44,18 @@ export default function gate(args) {
   if (asFlag !== undefined && !asFlag.trim()) die('--as needs an actor name.', usage);
   if (shaFlag !== undefined && !shaFlag.trim()) die('--sha needs a commit.', usage);
 
-  // A receipt is parsed by CI one row per line, so a newline in a note is not a
-  // formatting problem — it is an extra row, and CI reads an extra row as a
-  // verdict. `renderReceipt` neutralises this too, but a value that can only
-  // ever be wrong should be refused where it enters rather than repaired where
-  // it is printed: anyone who types this meant something Drydock cannot record.
+  // A receipt is parsed by CI one row per line, so a line break in a note is
+  // not a formatting problem — it is an extra line, and CI reads a line as a
+  // verdict or as the route claim. `renderReceipt` neutralises this too, but a
+  // value that can only ever be wrong should be refused where it enters rather
+  // than repaired where it is printed.
+  //
+  // U+2028 and U+2029 are line terminators to JavaScript's `^` anchor, and they
+  // are invisible in a diff, in a shell, and in a rendered PR body. Filtering
+  // only `[\r\n]` looks complete and is not.
   for (const [flag, value] of [['--note', note], ['--as', asFlag]]) {
-    if (typeof value === 'string' && /[\r\n]/.test(value)) {
-      die(`${flag} cannot contain a line break.`, 'A gate receipt is one row per line, and CI reads every row as a verdict.');
+    if (typeof value === 'string' && /[\r\n\u2028\u2029]/.test(value)) {
+      die(`${flag} cannot contain a line break.`, 'A gate receipt is one row per line, and CI reads every line as a claim.');
     }
   }
 

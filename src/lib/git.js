@@ -157,16 +157,23 @@ export function showFile(ref, filePath, cwd) {
 }
 
 /**
- * Does `path` exist at `ref`?
+ * Is `path` a readable blob at `ref`?
  *
  * `showFile` returning null is ambiguous — absent, or present and unreadable —
  * and routing has to tell those apart: "no CODEOWNERS" means nobody owns
  * anything, while "CODEOWNERS exists but we could not read it" must fail closed.
  * Collapsing the two makes the fail-closed branch unreachable and quietly
  * *shrinks* routes.
+ *
+ * The type is checked rather than mere existence, because `cat-file -e` says
+ * yes to a *directory* named `CODEOWNERS` and `git show` then prints a tree
+ * listing — which parses into junk owners that own nothing, silently disabling
+ * every `codeowners:` rule instead of failing closed. Anything that is not a
+ * blob is treated as not being the file.
  */
 export function pathExists(ref, filePath, cwd) {
-  return tryRun('git', ['cat-file', '-e', `${ref}:${filePath}`], { cwd }).ok;
+  const r = tryRun('git', ['cat-file', '-t', `${ref}:${filePath}`], { cwd });
+  return r.ok && r.out.trim() === 'blob';
 }
 
 export function pushBranch(branch, cwd) {

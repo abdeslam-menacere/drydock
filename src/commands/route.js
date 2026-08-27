@@ -326,7 +326,9 @@ function routeContext(cfg, dock, sha, root) {
     // Absent and unreadable are different answers and must stay different. No
     // CODEOWNERS at the base means nobody owns anything, which is a real (and
     // routing-relevant) fact. A CODEOWNERS that exists but will not read is a
-    // failure, and `deriveRoute` fails closed on `owners === null`.
+    // failure, and `deriveRoute` fails closed on `owners === null`. `pathExists`
+    // also insists on a blob, so a directory at one of these paths is not
+    // mistaken for the file.
     ctx.owners = [];
     for (const p of ['.github/CODEOWNERS', 'CODEOWNERS', 'docs/CODEOWNERS']) {
       if (!git.pathExists(from, p, dock.worktree)) continue;
