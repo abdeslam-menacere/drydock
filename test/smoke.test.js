@@ -11,6 +11,7 @@ import { QUESTIONS, SCHEMA_VERSION } from '../src/lib/questions.js';
 import { parseArgs } from '../src/lib/args.js';
 import { matchesGlob, globToRegExp } from '../src/lib/glob.js';
 import { deriveRoute, validateRouting, parseCodeowners, ownersFor } from '../src/commands/route.js';
+import { planWorkspace } from '../src/commands/start.js';
 import { resolveActor, isAgent } from '../src/commands/gate.js';
 import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
@@ -740,6 +741,110 @@ ok('so land refuses until qa runs too', dd(['land', '416', '--dry-run']).status 
 fs.writeFileSync(cfgFile, savedCfg);
 ok('removing the routing block restores v0.1 behaviour',
   json(dd(['route', '416', '--json'])).routed === false);
+
+console.log('\nflow profile: allocation');
+// A worktree solves concurrency and pinned processes. `auto` asks whether
+// either problem is present rather than assuming it always is.
+const inFlight = [{ issue: 1, status: 'open' }];
+ok('always means always', planWorkspace({ worktree: 'always' }, repo, 9, false, []).kind === 'worktree');
+ok('never means never', planWorkspace({ worktree: 'never' }, repo, 9, false, []).kind === 'branch');
+ok('auto uses a plain branch when nothing else is in flight',
+  planWorkspace({ worktree: 'auto' }, repo, 9, false, []).kind === 'branch');
+ok('auto allocates one when another dock is open',
+  planWorkspace({ worktree: 'auto' }, repo, 9, false, inFlight).kind === 'worktree');
+ok('auto allocates one when a preview is wanted',
+  planWorkspace({ worktree: 'auto' }, repo, 9, true, []).kind === 'worktree');
+ok('auto does not count the dock being started',
+  planWorkspace({ worktree: 'auto' }, repo, 1, false, inFlight).kind === 'branch');
+ok('a landed dock does not hold a worktree open',
+  planWorkspace({ worktree: 'auto' }, repo, 9, false, [{ issue: 1, status: 'landed' }]).kind === 'branch');
+ok('an unrecognised policy fails safe', planWorkspace({ worktree: 'x' }, repo, 9, false, []).kind === 'worktree');
+ok('every decision carries its reason',
+  planWorkspace({ worktree: 'auto' }, repo, 9, false, inFlight).reason.includes('#1'));
+
+console.log('\nflow profile: the loop');
+const dockProfileCfg = fs.readFileSync(cfgFile, 'utf8');
+fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(dockProfileCfg), profile: 'flow' }, null, 2) + '\n');
+
+dd(['start', '417']);
+const d417 = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/417.json'), 'utf8'));
+ok('flow mode writes no DOCK.md — the issue is the brief',
+  !fs.existsSync(path.join(d417.worktree, 'DOCK.md')));
+ok('but a manifest is still written, so the audit trail survives', d417.issue === 417);
+ok('and it records the profile it ran under', d417.profile === 'flow');
+ok('and which workspace it got, with the reason',
+  d417.workspace === 'worktree' && typeof d417.workspaceReason === 'string' && d417.workspaceReason.length > 0);
+ok('status names the mode and the workspace', (() => {
+  const s = dd(['status']).stdout;
+  return s.includes('flow / worktree') && s.includes('#417');
+})(), dd(['status']).stdout);
+
+fs.writeFileSync(path.join(d417.worktree, 'feature.js'), '// flow\n');
+git(['add', '-A'], d417.worktree);
+git(['commit', '-qm', 'feat: flow'], d417.worktree);
+
+const flowLand = dd(['land', '417', '--dry-run']);
+ok('flow mode opens the PR with gates still to run', flowLand.status === 0, flowLand.stdout + flowLand.stderr);
+ok('and the receipt shows them pending rather than passed', /⏳ pending/.test(flowLand.stdout), flowLand.stdout);
+ok('and states which profile produced it', flowLand.stdout.includes('Profile: **flow**'));
+ok('and a pending row cannot satisfy the CI row regex',
+  [...flowLand.stdout.matchAll(ROW())].length === 0, flowLand.stdout);
+
+// The binding point moved. The binding did not — the three properties that make
+// a verdict mean anything are asserted here, in flow mode, not just claimed.
+const qaFirst = dd(['gate', '417', 'qa', '--pass']);
+ok('gate ordering is unchanged in flow mode', qaFirst.status !== 0, qaFirst.stdout + qaFirst.stderr);
+ok('review records normally', dd(['gate', '417', 'review', '--pass']).status === 0);
+const headOf417 = () => git(['rev-parse', 'HEAD'], d417.worktree);
+const reviewedAt = headOf417();
+ok('a recorded verdict fills the receipt row',
+  /\|\s*review\s*\|\s*✅ pass/.test(dd(['land', '417', '--dry-run']).stdout));
+
+fs.appendFileSync(path.join(d417.worktree, 'feature.js'), '// more\n');
+git(['commit', '-qam', 'feat: more'], d417.worktree);
+const flowStale = dd(['land', '417', '--dry-run']);
+ok('a new commit makes a flow-mode verdict stale', flowStale.status !== 0, flowStale.stdout);
+ok('and land says so rather than opening anything', /STALE/.test(flowStale.stdout + flowStale.stderr));
+ok('an agent still cannot record a verdict without naming the commit',
+  ddBare(['gate', '417', 'review', '--pass', '--as', 'agent:r'], {}).status !== 0);
+ok('and still cannot name a commit that is not HEAD',
+  dd(['gate', '417', 'review', '--pass', '--as', 'agent:r', '--sha', reviewedAt]).status !== 0);
+ok('there is no --force in flow mode', dd(['land', '417', '--force']).status !== 0);
+ok('and no --skip-gates', dd(['land', '417', '--skip-gates']).status !== 0);
+
+fs.writeFileSync(cfgFile, dockProfileCfg);
+
+console.log('\nflow profile: a dock with no worktree');
+const homeBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], repo);
+fs.writeFileSync(cfgFile,
+  JSON.stringify({ ...JSON.parse(dockProfileCfg), profile: 'flow', worktree: 'never' }, null, 2) + '\n');
+git(['add', '-A'], repo);
+if (git(['status', '--porcelain'], repo)) git(['commit', '-qm', 'chore: snapshot'], repo);
+
+const started418 = dd(['start', '418']);
+ok('start succeeds without allocating a worktree', started418.status === 0, started418.stdout + started418.stderr);
+const d418 = JSON.parse(fs.readFileSync(path.join(repo, '.drydock/docks/418.json'), 'utf8'));
+ok('the manifest says which workspace it got', d418.workspace === 'branch', JSON.stringify(d418.workspace));
+ok('no dock directory was created', !fs.existsSync(path.join(repo, '.docks', '418-issue-418')));
+ok('the branch is checked out where the developer already is',
+  git(['rev-parse', '--abbrev-ref', 'HEAD'], repo) === d418.branch);
+ok('and no DOCK.md was littered into their checkout', !fs.existsSync(path.join(repo, 'DOCK.md')));
+ok('status names the branch workspace', dd(['status']).stdout.includes('flow / branch'));
+
+fs.writeFileSync(path.join(repo, 'inline.js'), '// no worktree needed\n');
+git(['add', 'inline.js'], repo);
+git(['commit', '-qm', 'feat: inline'], repo);
+const land418 = dd(['land', '418', '--dry-run']);
+ok('the dock manifest is sitting uncommitted in the developer checkout',
+  git(['status', '--porcelain'], repo).includes('.drydock/docks/418.json'));
+ok('a branch-mode dock lands the same way', land418.status === 0, land418.stdout + land418.stderr);
+ok('with the same receipt contract', MARKER.test(land418.stdout), land418.stdout);
+
+git(['switch', '-q', homeBranch], repo);
+fs.writeFileSync(cfgFile, dockProfileCfg);
+ok('cleaning a branch-mode dock removes the manifest, not a worktree',
+  dd(['clean', '418', '--force']).status === 0);
+ok('and the dock is gone', !fs.existsSync(path.join(repo, '.drydock/docks/418.json')));
 
 console.log('\nclean');
 ok('clean exits 0', dd(['clean', '412', '--force']).status === 0);

@@ -1,19 +1,19 @@
 # Copilot instructions — this repository
 
-This project uses **Drydock**: every GitHub issue gets its own branch, its own
-git worktree, and its own agent session, and nothing opens a pull request until
-review and QA have both passed against the current commit.
+This project uses **Drydock**: every GitHub issue gets its own branch and its own
+agent session, and nothing merges until the gates its diff calls for have passed
+against the commit that is about to land.
 
-Read this before doing anything. If you are inside a dock worktree, read that
-dock's `DOCK.md` first — it is your complete brief and it wins on scope. The
-`## Operating policy` block in `DOCK.md` tells you how much of the loop runs
-unattended here. **`drydock start` does not generate that block yet — it
-arrives in #4.** If it is absent, assume the manual posture: implement, commit,
-post your summary, and stop at the review gate.
+Read this before doing anything. If there is a `DOCK.md` at the root, read it
+first — it is your complete brief and it wins on scope, and its `## Operating
+policy` block tells you how much of the loop runs unattended here. In **flow
+mode** there is no `DOCK.md`: the issue is the brief, and `drydock status` tells
+you which dock you are in. If no policy is stated anywhere, assume the manual
+posture: implement, commit, post your summary, and stop at the review gate.
 
 ## The invariant
 
-> One issue → one branch → one worktree → one agent → policy-gated merge.
+> One issue → one branch → one workspace → one agent → policy-gated merge.
 
 Every rule below follows from it. A change that weakens it needs a decision
 recorded in `SPEC.md`, not a commit message. See `SPEC.md` §10 for the autonomy
@@ -21,23 +21,29 @@ decision and §11 for the heaviness decision.
 
 ## Where am I
 
+`drydock status` answers this from anywhere in the repo, and it is the only
+answer that is always right — a dock does not necessarily have its own
+directory.
+
 | If you see | You are in | Do |
 |---|---|---|
 | `DOCK.md` at the root | a dock worktree | Work only on that one issue |
-| `drydock.config.json` at the root | the main repo | Coordinate; don't implement features here |
-
-`drydock status` answers this at any time, from anywhere in the repo.
+| `drydock status` naming a dock on your current branch | a branch-mode dock | Work only on that one issue |
+| neither | the main repo | Coordinate; don't implement features here |
 
 ## Working in a dock
 
 1. **One issue only.** A bug, refactor, or missing test unrelated to your issue
-   goes under `## Follow-ups` in `DOCK.md` as a proposed new issue. Do not fix it.
-   Out-of-scope changes fail review — this is the most common failure by far.
-2. **Stay inside the worktree.** Sibling directories are other docks with other
-   agents actively working. Never read or modify anything outside your root.
+   goes under `## Follow-ups` in `DOCK.md`, or in an issue comment if this dock
+   has no `DOCK.md`, as a proposed new issue. Do not fix it. Out-of-scope changes
+   fail review — this is the most common failure by far.
+2. **Stay inside your workspace.** If you have your own worktree, sibling
+   directories are other docks with other agents actively working: never read or
+   modify anything outside your root. If your dock is a plain branch in the main
+   checkout, the boundary is the branch — never switch away from it.
 3. **Record assumptions.** Ambiguity gets written into `## Assumptions` in
-   `DOCK.md`, then you proceed. Silent guessing is the failure mode this entire
-   system exists to prevent.
+   `DOCK.md`, or into an issue comment where there is none, then you proceed.
+   Silent guessing is the failure mode this entire system exists to prevent.
 4. **Never switch branches, rebase, or merge by hand.** Landing is `drydock land`
    after the gates pass, and merging is GitHub's once CI is green. Your work ends
    at a reviewable commit.
@@ -74,7 +80,8 @@ core of the product.
 ## Routing
 
 *Which* gates apply is derived from the diff, not chosen. `SPEC.md` §11 is the
-record; none of it ships in `v0.1.0`. If you are implementing any part of it:
+record. The router, its additive rules, and flow mode all ship; the risk scorer
+(#26) and the `po` gate (#24) do not yet. The rules that govern any part of it:
 
 - **Routing allocates judgement, never verification.** Tests and lint always
   run. No exemption reaches them. Routing only decides how much review and QA
@@ -90,6 +97,19 @@ record; none of it ships in `v0.1.0`. If you are implementing any part of it:
 
 Do not build a route-shortening path of any kind. That is the `--force` this
 project refuses, wearing a better name.
+
+## Profiles
+
+`profile: "flow"` moves *when* gates bind — to the pull request rather than to
+every commit — and `worktree: "auto"` gives a dock its own directory only when
+one is actually needed. Neither changes *what* binds. In every profile: gates
+bind to a SHA, run in order, go stale on a new commit, and cannot be skipped. A
+failed or stale gate blocks `land` in flow mode exactly as in dock mode.
+
+What flow mode does give up is the local enforcement layer, which is why
+`drydock-gates` must be a required status check before anyone selects it. Say
+so if you find it configured without one; do not compensate by adding a local
+check that flow mode is meant not to have.
 
 ## Finishing
 

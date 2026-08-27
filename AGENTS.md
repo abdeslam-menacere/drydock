@@ -62,7 +62,9 @@ An absent `routing` block must reproduce v0.1 behaviour exactly. That is why `ro
 - **A route is derived, twice.** It is a pure projection of `(diff at sha, policy at base)` — never stored, always recomputed. CI re-derives it from the *base* branch's config, never the pull request's, and enforces `claimed ⊇ derived`.
 - **Anything the author controls may only add gates, never remove them.** That covers labels, branch names, and the risk scorer alike. The deterministic router is the security boundary; an agent is never the sole detector of a known risk class.
 
-Flow mode (§11.5) moves *when* gates bind, not whether. SHA binding, ordering, and no-bypass are identical in every mode.
+Flow mode (§11.5) moves *when* gates bind — to the pull request instead of to every commit — and `worktree: "auto"` allocates a directory only when concurrency or a pinned process actually needs one. Neither changes *what* binds: SHA binding, ordering, staleness, and no-bypass are identical in every mode, and a failed or stale gate blocks `land` in both. Flow mode has no local enforcement layer left, so `drydock-gates` being a required check is a precondition for it, not a nicety — do not add a local substitute.
+
+Two consequences for code you write here: nothing may assume a dock has its own directory (`dock.worktree` may be the main checkout), and nothing may assume `DOCK.md` exists.
 
 ## Testing
 

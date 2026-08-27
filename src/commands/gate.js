@@ -2,26 +2,16 @@ import { loadConfig, repoRoot, readDock, writeDock } from '../lib/config.js';
 import { log, die } from '../lib/log.js';
 import { parseArgs } from '../lib/args.js';
 import * as git from '../lib/git.js';
+import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
 import { routeOrDie } from './route.js';
+import { renderReceipt } from './receipt.js';
+import { resolveActor, isAgent } from '../lib/actor.js';
 
-/**
- * Who is recording this verdict.
- *
- * `--as` wins because `DRYDOCK_ACTOR` persists for the life of a shell: one
- * left set by an earlier command in a shared session nearly filed a reviewer
- * agent's verdict under a human's name. An explicit flag is scoped to the
- * single invocation that carries it.
- */
-export function resolveActor(explicit, env = process.env) {
-  for (const v of [explicit, env.DRYDOCK_ACTOR, env.USER, env.USERNAME]) {
-    if (typeof v === 'string' && v.trim()) return v.trim();
-  }
-  return 'unknown';
-}
-
-/** Verdicts recorded by an agent are attributed `agent:<role>`. */
-export const isAgent = (by) => /^agent:/i.test(String(by ?? '').trim());
+// Re-exported so callers that already know `gate` as the home of attribution
+// keep working; the implementations moved to lib/actor.js to break an import
+// cycle with the receipt renderer.
+export { resolveActor, isAgent };
 
 /**
  * A gate binds a verdict to a specific commit SHA.
@@ -84,15 +74,31 @@ export default function gate(args) {
 
   notify.lifecycle(cfg, issue, verdictComment(name, pass, sha, by, note), root);
 
+  // In flow mode the pull request is where the gates bind, so a verdict is not
+  // recorded anywhere that counts until the receipt in the PR body says so.
+  // Harmless in dock mode, where the PR already carries a complete receipt.
+  refreshReceipt(cfg, dock, root, head);
+
   if (pass) {
     log.ok(`Gate "${name}" passed @ ${sha.slice(0, 8)} by ${by}`);
-    const remaining = cfg.gates.filter((g) => dock.gates[g]?.verdict !== 'pass');
+    const remaining = required.filter((g) => dock.gates[g]?.verdict !== 'pass');
     if (remaining.length) log.dim(`Remaining: ${remaining.join(', ')}`);
+    else if (dock.pr) log.dim('Every gate on this route is green — CI will re-verify against the PR head.');
     else log.dim(`All gates green — run: drydock land ${issue}`);
   } else {
     log.err(`Gate "${name}" failed @ ${sha.slice(0, 8)} by ${by}`);
     if (note) log.dim(note);
   }
+}
+
+/** Rewrite the PR receipt so the server sees what the manifest now says. */
+function refreshReceipt(cfg, dock, root, head) {
+  if (!dock.pr || !gh.available()) return;
+  const route = routeOrDie(cfg, dock, head, root);
+  const body = `Closes #${dock.issue}\n\n${renderReceipt(dock, route, head, { profile: cfg.profile })}`;
+  const r = gh.updatePrBody(dock.pr, body, dock.worktree);
+  if (r.ok) log.ok('Receipt updated on the pull request');
+  else log.warn(`Could not update the PR receipt: ${String(r.err || '').split('\n')[0]}`);
 }
 
 /**

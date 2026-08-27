@@ -27,8 +27,16 @@ export default function status() {
 
     const state = head ? d.status : 'worktree-missing';
     log.raw(`  #${String(d.issue).padEnd(5)} ${marks.padEnd(26)} ${state.padEnd(18)} ${d.title}`);
-    log.dim(`${d.branch}`);
+
+    // Which mode this dock is in and what workspace it got, with the reason —
+    // `auto` is a decision made once at `start`, and a decision nobody can see
+    // afterwards is indistinguishable from arbitrary behaviour.
+    const profile = d.profile ?? 'dock';
+    const workspace = d.workspace ?? 'worktree';
+    log.dim(`${d.branch}  ·  ${profile} / ${workspace}${d.workspaceReason ? ` (${d.workspaceReason})` : ''}`);
+    if (d.preview?.url) log.dim(`preview: ${d.preview.url}`);
   }
   log.raw('');
   log.dim('✓ passed   ✗ failed   · not run   ⚠stale = new commits since the gate passed');
+  log.dim('dock = gates bind to every commit   flow = gates bind to the pull request');
 }

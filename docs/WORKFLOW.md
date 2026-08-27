@@ -86,6 +86,14 @@ Copilot picks up `.github/agents/drydock-dev.md` as a custom agent. Claude Code 
 
 The agent works only inside that directory. Sibling docks are live.
 
+Under `"profile": "flow"` there is no `DOCK.md` and possibly no directory — the
+issue is the brief and the dock may be a plain branch in your existing checkout.
+Point the agent at the issue instead:
+
+```
+You are drydock-dev. Implement issue #412. Work only on that issue.
+```
+
 Run the gates yourself from there. The steps below are identical either way — the
 gates do not care who records the verdict, only that it is fresh, ordered, and
 not self-issued.
@@ -212,6 +220,22 @@ If an agent committed after the gates passed:
 ```
 
 Re-run the gates. This is working as intended.
+
+### Landing in flow mode
+
+Under `"profile": "flow"` the order is inverted: `land` opens the pull request
+with the gates still outstanding and prints the receipt with `⏳ pending` rows.
+Recording a verdict afterwards rewrites the receipt in place, and CI re-checks
+every row against the PR head, so the PR cannot go green until the route is
+satisfied at the commit that is about to merge.
+
+What does *not* change: a `fail` or a stale `pass` blocks `land` in flow mode
+too, ordering is still enforced, and there is still no bypass flag. Flow mode
+moves the binding point, not the binding.
+
+Because there is no local enforcement step left, `drydock-gates` must be a
+required status check before you select flow mode. `drydock init` warns about
+this, and `land` repeats the warning every time it runs unenforced.
 
 ### 6. Clean up
 

@@ -31,7 +31,13 @@ export function deleteBranch(name, cwd, force = false) {
 }
 
 export function isDirty(cwd) {
-  return tryRun('git', ['status', '--porcelain'], { cwd }).out.length > 0;
+  // Drydock's own manifests live in the working tree. In a dock with its own
+  // worktree they land in the main checkout and never show up here; in a
+  // branch-mode dock they land right next to the developer's files. Either
+  // way they are the tool's bookkeeping, not work anyone can lose, so they
+  // must not be what makes a checkout look dirty.
+  const args = ['status', '--porcelain', '--', ':(top)', ':(exclude,top).drydock/'];
+  return tryRun('git', args, { cwd }).out.length > 0;
 }
 
 /** Full SHA for a ref, or null if it does not name a commit here. */
@@ -114,6 +120,12 @@ export function showFile(ref, filePath, cwd) {
 
 export function pushBranch(branch, cwd) {
   return tryRun('git', ['push', '-u', 'origin', branch], { cwd });
+}
+
+/** Check out `branch` here, creating it from `base` if it does not exist yet. */
+export function switchToBranch(branch, base, cwd) {
+  if (branchExists(branch, cwd)) return tryRun('git', ['switch', branch], { cwd });
+  return tryRun('git', ['switch', '-c', branch, base], { cwd });
 }
 
 export function fetchBase(base, cwd) {

@@ -23,9 +23,19 @@ export default function clean(args) {
       log.warn(`#${d.issue}: uncommitted changes — skipped (use --force)`);
       continue;
     }
-    git.removeWorktree(d.worktree, root, force);
-    git.deleteBranch(d.branch, root, force);
+    // A branch-mode dock has no worktree to remove, and its branch may still be
+    // the one checked out here — deleting that would put the repo on a detached
+    // HEAD, so it is left for the developer who is standing in it.
+    const inWorktree = (d.workspace ?? 'worktree') === 'worktree';
+    if (inWorktree) {
+      git.removeWorktree(d.worktree, root, force);
+      git.deleteBranch(d.branch, root, force);
+    } else if (git.currentBranch(root) !== d.branch) {
+      git.deleteBranch(d.branch, root, force);
+    } else {
+      log.dim(`#${d.issue}: still on ${d.branch} — branch left alone.`);
+    }
     fs.rmSync(dockPath(d.issue, root), { force: true });
-    log.ok(`#${d.issue} cleaned — worktree, branch, and manifest removed`);
+    log.ok(`#${d.issue} cleaned — ${inWorktree ? 'worktree, branch, and manifest' : 'manifest'} removed`);
   }
 }

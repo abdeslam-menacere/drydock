@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig, repoRoot, readDock, writeDock, slugify, isConfigured } from '../lib/config.js';
+import { loadConfig, repoRoot, readDock, writeDock, slugify, isConfigured, listDocks } from '../lib/config.js';
 import { log, die } from '../lib/log.js';
+import { parseArgs } from '../lib/args.js';
 import { tryRun, has } from '../lib/sh.js';
 import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
@@ -9,8 +10,9 @@ import * as notify from './notify.js';
 import { runInterview } from './config.js';
 
 export default async function start(args) {
-  const issue = args.find((a) => /^\d+$/.test(a));
-  if (!issue) die('Usage: drydock start <issue-number>');
+  const cli = parseArgs(args, { flags: ['--force', '--preview'] });
+  const issue = cli.positionals.find((a) => /^\d+$/.test(a));
+  if (!issue) die('Usage: drydock start <issue-number> [--preview] [--force]');
 
   const root = repoRoot();
   let cfg = loadConfig(root);
@@ -19,7 +21,7 @@ export default async function start(args) {
   // of it. Non-interactive shells get a notice and the defaults, never a block.
   if (!isConfigured(cfg)) cfg = await runInterview(root);
 
-  if (readDock(issue, root) && !args.includes('--force')) {
+  if (readDock(issue, root) && !cli.flags.has('--force')) {
     die(`Dock for issue #${issue} already exists.`, 'Use --force to recreate, or `drydock status`.');
   }
 
@@ -36,34 +38,67 @@ export default async function start(args) {
   const slug = slugify(meta.title);
   const branch = cfg.branchPattern.replace('{issue}', issue).replace('{slug}', slug);
   const dockDir = path.resolve(root, cfg.docksDir, `${issue}-${slug}`);
+  const flow = cfg.profile === 'flow';
 
-  // --- One issue, one branch, one worktree. The invariant. ---
+  // --- One issue, one branch, one workspace. The invariant. ---
   git.fetchBase(cfg.baseBranch, root);
-  fs.mkdirSync(path.dirname(dockDir), { recursive: true });
-  try {
-    git.addWorktree(dockDir, branch, `origin/${cfg.baseBranch}`, root);
-  } catch (e) {
-    // Fall back to local base if origin/<base> isn't available.
-    git.addWorktree(dockDir, branch, cfg.baseBranch, root);
+  const plan = planWorkspace(cfg, root, issue, cli.flags.has('--preview'));
+  log.dim(`Workspace: ${plan.kind} — ${plan.reason}`);
+
+  let workspace;
+  if (plan.kind === 'worktree') {
+    fs.mkdirSync(path.dirname(dockDir), { recursive: true });
+    try {
+      git.addWorktree(dockDir, branch, `origin/${cfg.baseBranch}`, root);
+    } catch {
+      // Fall back to local base if origin/<base> isn't available.
+      git.addWorktree(dockDir, branch, cfg.baseBranch, root);
+    }
+    workspace = dockDir;
+    log.ok(`Worktree: ${path.relative(root, dockDir)}`);
+  } else {
+    // A plain branch in the checkout the developer is already standing in.
+    // Refused rather than forced if that would discard work: `start` is not
+    // allowed to be the command that loses somebody's uncommitted changes.
+    if (git.isDirty(root)) {
+      die('The checkout has uncommitted changes.', 'Commit or stash them, or set worktree to "always".');
+    }
+    const from = git.resolveCommit(`origin/${cfg.baseBranch}`, root) ? `origin/${cfg.baseBranch}` : cfg.baseBranch;
+    const sw = git.switchToBranch(branch, from, root);
+    if (!sw.ok) die(`Could not check out ${branch}.`, sw.err);
+    workspace = root;
+    log.ok(`Checked out ${branch} here (no worktree)`);
   }
-  log.ok(`Worktree: ${path.relative(root, dockDir)}`);
   log.ok(`Branch:   ${branch}`);
 
   // --- Brief the agent. This file is the dock's only context. ---
-  // The brief is scaffolding, not source. Git reports untracked files as dirty,
-  // so without an exclude entry every dock is permanently dirty and `land`
-  // refuses to run — and a stray `git add -A` drags DOCK.md into the PR diff.
-  excludeDockBrief(dockDir);
-  const brief = renderBrief(meta, cfg, branch);
-  fs.writeFileSync(path.join(dockDir, 'DOCK.md'), brief);
-  log.ok('Wrote DOCK.md (the agent brief for this dock)');
+  // Dock mode only: in flow mode the issue is the brief, there is no local
+  // policy block, and writing DOCK.md into the developer's own checkout would
+  // be litter rather than context.
+  if (!flow && plan.kind === 'worktree') {
+    // The brief is scaffolding, not source. Git reports untracked files as
+    // dirty, so without an exclude entry every dock is permanently dirty and
+    // `land` refuses to run — and a stray `git add -A` drags DOCK.md into the
+    // PR diff.
+    excludeDockBrief(workspace);
+    fs.writeFileSync(path.join(workspace, 'DOCK.md'), renderBrief(meta, cfg, branch));
+    log.ok('Wrote DOCK.md (the agent brief for this dock)');
+  } else {
+    log.dim(`Brief: the issue itself${meta.url ? ` — ${meta.url}` : ''}`);
+  }
 
   const dock = {
     issue: Number(issue),
     title: meta.title,
     url: meta.url,
     branch,
-    worktree: dockDir,
+    // Kept as `worktree` whatever the workspace kind is: every other command
+    // treats it as "the directory this dock's commits live in", and in branch
+    // mode that is the checkout itself.
+    worktree: workspace,
+    workspace: plan.kind,
+    workspaceReason: plan.reason,
+    profile: cfg.profile,
     base: cfg.baseBranch,
     agent: cfg.agent,
     // Labels are a routing signal (§11.3). Recorded here as a floor; `route`
@@ -79,14 +114,43 @@ export default async function start(args) {
   notify.lifecycle(cfg, issue, dockOpenedComment(dock, root), root);
 
   // --- Optional editor window. Headless if editor is null. ---
-  if (cfg.editor && has(cfg.editor)) {
-    tryRun(cfg.editor, [dockDir]);
+  if (cfg.editor && has(cfg.editor) && plan.kind === 'worktree') {
+    tryRun(cfg.editor, [workspace]);
     log.ok(`Opened ${cfg.editor} on the dock`);
   }
 
   log.head(`Dock #${issue} is open`);
-  log.dim(`cd ${dockDir}`);
+  if (plan.kind === 'worktree') log.dim(`cd ${workspace}`);
   log.dim(`then: drydock gate ${issue} review --pass   (after principal review)`);
+}
+
+/**
+ * Worktree, or just a branch?
+ *
+ * A worktree solves exactly two problems: two checkouts of the same repo needed
+ * at once, and a long-running process pinned to one branch. Where neither is
+ * present it costs a directory, a copy of the working set, and the mental
+ * overhead of remembering where you are. `auto` therefore asks whether either
+ * problem is actually here rather than assuming it always is.
+ */
+export function planWorkspace(cfg, root, issue, previewWanted = false, docks = null) {
+  const mode = cfg.worktree ?? 'always';
+  if (mode === 'always') return { kind: 'worktree', reason: 'policy: worktree always' };
+  if (mode === 'never') return { kind: 'branch', reason: 'policy: worktree never' };
+  if (mode !== 'auto') return { kind: 'worktree', reason: `unrecognised worktree policy "${mode}" — failing safe` };
+
+  if (previewWanted) return { kind: 'worktree', reason: 'a preview was requested, which pins a process to this branch' };
+
+  const active = (docks ?? listDocks(root)).filter(
+    (d) => String(d.issue) !== String(issue) && d.status !== 'landed' && d.status !== 'closed',
+  );
+  if (active.length) {
+    return {
+      kind: 'worktree',
+      reason: `${active.length} other dock${active.length > 1 ? 's are' : ' is'} in flight (#${active.map((d) => d.issue).join(', #')})`,
+    };
+  }
+  return { kind: 'branch', reason: 'nothing else is in flight and no preview was asked for' };
 }
 
 function dockOpenedComment(dock, root) {
@@ -94,10 +158,15 @@ function dockOpenedComment(dock, root) {
     '### Drydock: dock opened',
     '',
     `- **Branch:** \`${dock.branch}\` (from \`${dock.base}\`)`,
-    `- **Worktree:** \`${path.relative(root, dock.worktree)}\``,
+    dock.workspace === 'worktree'
+      ? `- **Worktree:** \`${path.relative(root, dock.worktree)}\``
+      : `- **Workspace:** branch in the main checkout — ${dock.workspaceReason}`,
     `- **Agent:** \`${dock.agent}\``,
+    `- **Profile:** \`${dock.profile}\``,
     '',
-    `<sub>One issue, one branch, one worktree. Nothing opens a PR until every gate passes against the commit it reviewed.</sub>`,
+    dock.profile === 'flow'
+      ? '<sub>One issue, one branch. Gates bind to the pull request: it cannot merge until every gate on its route has passed against the PR head.</sub>'
+      : '<sub>One issue, one branch, one worktree. Nothing opens a PR until every gate passes against the commit it reviewed.</sub>',
   ].join('\n');
 }
 

@@ -207,6 +207,49 @@ can never shorten somebody else's route. Author-controlled signals like `label`
 are allowed to add and nothing else; a config that tries to use one to reach
 below the baseline is refused with an error naming the rule.
 
+**Ceremony is earned too.** Routing decides *how many* gates a change owes. The
+`profile` decides *when* they bind, and whether the dock gets a worktree at all.
+
+```jsonc
+{ "profile": "flow", "worktree": "auto" }
+```
+
+| | `dock` (default) | `flow` |
+|---|---|---|
+| Governance travels with | the commit | the pull request |
+| Enforced by | `land` locally, then CI | CI |
+| Worktree | always | when it earns one |
+| Local artifacts | `DOCK.md`, manifest, policy block | the issue is the brief |
+
+In flow mode `land` opens the pull request with the gates still outstanding, and
+the receipt says so:
+
+```
+| review | ⏳ pending |   |   |
+| qa     | ⏳ pending |   |   |
+```
+
+Recording a verdict afterwards rewrites the receipt in place, and CI re-derives
+the route and re-checks every row against the PR head. So gates still bind to a
+SHA, still run in order, still go stale on a new commit, and still cannot be
+skipped — they simply fire once, against the thing that is about to merge,
+instead of at every commit along the way.
+
+A failed or stale gate blocks `land` in **both** profiles. There is no `--force`
+and no `--skip-gates`; flow mode moves the binding point, not the binding.
+
+The trade is stated plainly: flow mode has no local enforcement layer left, so
+if `drydock-gates` is not a **required** status check, flow mode is unenforced.
+`drydock init` says so out loud when you select it.
+
+**Worktrees are allocated, not assumed.** A worktree solves exactly two problems
+— two checkouts at once, and a long-running process pinned to a branch.
+`"worktree": "auto"` creates one when another dock is already open or a preview
+is requested, and otherwise just switches your checkout to the branch. Where
+neither problem exists, the isolation ceremony is pure cost. `always` and
+`never` are also available, and `drydock status` always names which one a dock
+got and why.
+
 ## Works with your agent
 
 The behavioural contracts live in `.github/`, which is simultaneously:

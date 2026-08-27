@@ -18,6 +18,14 @@ export const DEFAULTS = {
   baseBranch: 'main',
   // Gates that must pass, in order, before `drydock land` will open a PR.
   gates: ['review', 'qa'],
+  // 'dock' binds gates to every commit in an isolated worktree; 'flow' binds
+  // them to the pull request and lets CI be the only enforcement layer. The
+  // binding point moves, the binding does not. SPEC §11.5.
+  profile: 'dock',
+  // 'always' | 'auto' | 'never'. A worktree solves two problems: concurrent
+  // checkouts, and long-running processes pinned to a branch. `auto` allocates
+  // one when either problem is actually present, and a plain branch otherwise.
+  worktree: 'always',
   // Open an editor window per dock. Set to null for headless/CI use.
   editor: 'code',
   // Which agent CLI to hand the dock to. Informational in v1.

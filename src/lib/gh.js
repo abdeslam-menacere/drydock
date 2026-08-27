@@ -26,6 +26,12 @@ export function createPr({ title, body, base, head }, cwd) {
   ], { cwd });
 }
 
+/** Rewrite a pull request body. Used to keep the gate receipt current. */
+export function updatePrBody(ref, body, cwd) {
+  if (!available()) return unavailable();
+  return tryRun('gh', ['pr', 'edit', String(ref), '--body', body], { cwd });
+}
+
 export function repoNameWithOwner(cwd) {
   const r = tryRun('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { cwd });
   return r.ok ? r.out : null;
