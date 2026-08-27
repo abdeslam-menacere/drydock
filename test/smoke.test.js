@@ -10,7 +10,7 @@ import { pendingQuestions } from '../src/lib/config.js';
 import { QUESTIONS, SCHEMA_VERSION } from '../src/lib/questions.js';
 import { parseArgs } from '../src/lib/args.js';
 import { matchesGlob, globToRegExp } from '../src/lib/glob.js';
-import { deriveRoute } from '../src/commands/route.js';
+import { deriveRoute, validateRouting, parseCodeowners, ownersFor } from '../src/commands/route.js';
 import { resolveActor, isAgent } from '../src/commands/gate.js';
 import { wantsLifecycle, lifecycle } from '../src/commands/notify.js';
 import { runInterview } from '../src/commands/config.js';
@@ -41,6 +41,7 @@ const cfgFile = path.join(repo, 'drydock.config.json');
 const readCfg = () => JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
 const gitignore = () => fs.readFileSync(path.join(repo, '.gitignore'), 'utf8');
 const json = (r) => { try { return JSON.parse(r.stdout); } catch { return null; } };
+const throws = (fn) => { try { fn(); return false; } catch { return true; } };
 
 /** Drive the real interview over scripted streams, capturing what it asked. */
 async function answer(lines, opts = {}) {
@@ -545,8 +546,100 @@ ok('an exemption cannot cover a protected file',
 
 ok('gates keep their declared order, not the order written in policy',
   deriveRoute({ gates: ['review', 'qa'], routing: { baseline: ['qa', 'review'] } }, f('a.js')).gates.join() === 'review,qa');
-ok('a gate name that is not declared is dropped',
-  deriveRoute({ gates: ['review', 'qa'], routing: { baseline: ['nope'] } }, f('a.js')).gates.length === 0);
+ok('a gate name that is not declared is refused, not dropped',
+  throws(() => deriveRoute({ gates: ['review', 'qa'], routing: { baseline: ['nope'] } }, f('a.js'))));
+
+console.log('\nrouting: additive rules');
+const RR = (rules, extra = {}) => ({
+  gates: ['review', 'qa', 'security'],
+  routing: { baseline: ['review'], rules, ...extra },
+});
+const auth = { name: 'auth', paths: ['src/auth/**'], gates: ['security'] };
+const migr = { name: 'migrations', paths: ['migrations/**'], gates: ['qa'] };
+
+ok('a rule that matches nothing changes nothing',
+  deriveRoute(RR([auth]), f('src/ui.js')).gates.join() === 'review');
+ok('a matching rule adds to the baseline',
+  deriveRoute(RR([auth]), f('src/auth/token.js')).gates.join() === 'review,security');
+// Union, not first-match-wins: risks compose.
+ok('two rules both fire and both contribute',
+  deriveRoute(RR([auth, migr]), f('src/auth/token.js', 'migrations/003.sql')).gates.join() === 'review,qa,security');
+ok('overlapping rules do not duplicate a gate',
+  deriveRoute(RR([auth, { name: 'also', paths: ['src/**'], gates: ['security'] }]),
+    f('src/auth/token.js')).gates.join() === 'review,security');
+ok('every contributing rule is attributed',
+  deriveRoute(RR([auth, migr]), f('src/auth/token.js', 'migrations/003.sql'))
+    .matched.filter((m) => m.source === 'rule').map((m) => m.name).join() === 'auth,migrations');
+ok('and so are the files that made it fire',
+  deriveRoute(RR([auth]), f('src/auth/token.js', 'README.md'))
+    .matched.find((m) => m.source === 'rule').files.join() === 'src/auth/token.js');
+
+// A rule ANDs its own conditions; composition happens between rules, by union.
+const bigAuth = { name: 'big-auth', paths: ['src/auth/**'], linesChanged: 100, gates: ['security'] };
+ok('a rule needs every one of its conditions',
+  deriveRoute(RR([bigAuth]), f('src/auth/a.js'), [], { added: 10, deleted: 0 }).gates.join() === 'review');
+ok('and fires when they all hold',
+  deriveRoute(RR([bigAuth]), f('src/auth/a.js'), [], { added: 90, deleted: 20 }).gates.join() === 'review,security');
+ok('filesTouched counts the whole diff',
+  deriveRoute(RR([{ name: 'wide', filesTouched: 3, gates: ['qa'] }]), f('a.js', 'b.js', 'c.js')).gates.join() === 'review,qa');
+ok('deletionRatio catches a removal',
+  deriveRoute(RR([{ name: 'rip', deletionRatio: 0.8, gates: ['qa'] }]), f('a.js'), [], { added: 1, deleted: 99 }).gates.join() === 'review,qa');
+ok('and leaves an addition alone',
+  deriveRoute(RR([{ name: 'rip', deletionRatio: 0.8, gates: ['qa'] }]), f('a.js'), [], { added: 99, deleted: 1 }).gates.join() === 'review');
+// Fail closed: a size rule with no size data cannot be evaluated.
+ok('a size rule with unreadable statistics takes the maximum path',
+  deriveRoute(RR([bigAuth]), f('src/auth/a.js'), [], {}).maxPath);
+
+// An exemption still subtracts, but a rule can still add on top of it.
+ok('a rule fires even inside an exemption',
+  deriveRoute(RR([{ name: 'release-notes', paths: ['docs/RELEASE.md'], gates: ['qa'] }],
+    { exempt: [{ name: 'docs-only', only: true, paths: ['docs/**'], gates: [] }] }),
+    f('docs/RELEASE.md')).gates.join() === 'qa');
+
+console.log('\nrouting: author-controlled signals only add');
+const withLabel = RR([{ name: 'sec-review', label: 'needs-security-review', gates: ['security'] }]);
+ok('a label that is absent adds nothing',
+  deriveRoute(withLabel, f('a.js'), [], { labels: [] }).gates.join() === 'review');
+ok('a label that is present adds its gates',
+  deriveRoute(withLabel, f('a.js'), [], { labels: ['needs-security-review'] }).gates.join() === 'review,security');
+ok('a label may never reach an exemption',
+  throws(() => validateRouting({ gates: ['review'], routing: { exempt: [{ name: 'x', only: true, label: 'trivial', paths: ['**'], gates: [] }] } })));
+ok('and the refusal says why', (() => {
+  try { validateRouting({ gates: ['review'], routing: { exempt: [{ label: 'trivial' }] } }); return false; }
+  catch (e) { return /may only add gates/.test(e.message); }
+})());
+ok('a rule may not carry a subtractive key',
+  throws(() => validateRouting({ gates: ['review'], routing: { rules: [{ paths: ['**'], only: true, gates: ['review'] }] } })));
+ok('a rule that adds no gates is refused',
+  throws(() => validateRouting({ gates: ['review'], routing: { rules: [{ paths: ['**'], gates: [] }] } })));
+ok('a rule with no condition is refused',
+  throws(() => validateRouting({ gates: ['review'], routing: { rules: [{ gates: ['review'] }] } })));
+ok('an unknown gate in a rule is refused at load, not at land',
+  throws(() => validateRouting({ gates: ['review'], routing: { rules: [{ paths: ['**'], gates: ['nope'] }] } })));
+ok('a valid policy validates quietly',
+  !throws(() => validateRouting(RR([auth, migr]))));
+
+console.log('\nrouting: CODEOWNERS as a signal');
+const owners = parseCodeowners([
+  '# comment',
+  '*        @org/everyone',
+  '/src/billing/**  @org/payments',
+  'docs/  @org/writers',
+].join('\n'));
+ok('comments and blanks are skipped', owners.length === 3);
+ok('a later entry wins', ownersFor(owners, 'src/billing/charge.js').join() === '@org/payments');
+ok('a catch-all still owns everything else', ownersFor(owners, 'src/ui.js').join() === '@org/everyone');
+ok('a trailing slash means the directory and below', ownersFor(owners, 'docs/a/b.md').join() === '@org/writers');
+
+const ownedRule = RR([{ name: 'payments', codeowners: ['@org/payments'], gates: ['security'] }]);
+ok('a diff in an owned path picks up that owner\'s gate',
+  deriveRoute(ownedRule, f('src/billing/charge.js'), [], { owners }).gates.join() === 'review,security');
+ok('a diff elsewhere does not',
+  deriveRoute(ownedRule, f('src/ui.js'), [], { owners }).gates.join() === 'review');
+ok('codeowners: true means any owned path',
+  deriveRoute(RR([{ name: 'any', codeowners: true, gates: ['qa'] }]), f('src/ui.js'), [], { owners }).gates.join() === 'review,qa');
+ok('an unreadable CODEOWNERS takes the maximum path',
+  deriveRoute(ownedRule, f('src/billing/charge.js'), [], { owners: null }).maxPath);
 
 console.log('\nrouting: CI derives the same route');
 // The server layer is the one that counts and it cannot import this code, so it
@@ -555,28 +648,45 @@ console.log('\nrouting: CI derives the same route');
 const blockMatch = wf.match(/--- drydock:derive-route[^\n]*\n([\s\S]*?)\/\/ --- end drydock:derive-route/);
 ok('workflow carries the derive-route block', !!blockMatch,
   'expected a `// --- drydock:derive-route ... // --- end drydock:derive-route` block');
-const mirrored = new Function('cfg', 'diff', 'binaryPaths',
-  `${blockMatch[1]}\nreturn deriveRoute(cfg, diff, binaryPaths);`);
+const mirrored = new Function('cfg', 'diff', 'binaryPaths', 'ctx',
+  `${blockMatch[1]}\nreturn deriveRoute(cfg, diff, binaryPaths, ctx);`);
 const routeCases = [
-  [G, f('src/a.js'), []],
-  [R, f('src/a.js'), []],
-  [R, f('README.md', 'docs/a.md'), []],
-  [R, f('README.md', 'src/a.js'), []],
-  [R, f('drydock.config.json'), []],
-  [R, f('.github/workflows/ci.yml'), []],
-  [R, f('CODEOWNERS'), []],
-  [R, [], []],
-  [R, null, []],
-  [R, f('a.md'), ['logo.png']],
-  [R, f('a.md'), null],
-  [R, [{ status: 'R100', path: 'b.md', from: 'a.md' }], []],
-  [{ ...R, routing: { ...R.routing, maxFiles: 2 } }, f('a.md', 'b.md', 'c.md'), []],
-  [{ gates: ['review', 'qa'], routing: { baseline: ['qa', 'review'] } }, f('a.js'), []],
+  [G, f('src/a.js'), [], {}],
+  [R, f('src/a.js'), [], {}],
+  [R, f('README.md', 'docs/a.md'), [], {}],
+  [R, f('README.md', 'src/a.js'), [], {}],
+  [R, f('drydock.config.json'), [], {}],
+  [R, f('.github/workflows/ci.yml'), [], {}],
+  [R, f('CODEOWNERS'), [], {}],
+  [R, [], [], {}],
+  [R, null, [], {}],
+  [R, f('a.md'), ['logo.png'], {}],
+  [R, f('a.md'), null, {}],
+  [R, [{ status: 'R100', path: 'b.md', from: 'a.md' }], [], {}],
+  [{ ...R, routing: { ...R.routing, maxFiles: 2 } }, f('a.md', 'b.md', 'c.md'), [], {}],
+  [{ gates: ['review', 'qa'], routing: { baseline: ['qa', 'review'] } }, f('a.js'), [], {}],
+  // Rules, in every shape CI has to reproduce.
+  [RR([auth]), f('src/ui.js'), [], {}],
+  [RR([auth, migr]), f('src/auth/t.js', 'migrations/003.sql'), [], {}],
+  [RR([bigAuth]), f('src/auth/a.js'), [], { added: 90, deleted: 20 }],
+  [RR([bigAuth]), f('src/auth/a.js'), [], { added: 1, deleted: 1 }],
+  [RR([bigAuth]), f('src/auth/a.js'), [], {}],
+  [RR([{ name: 'wide', filesTouched: 3, gates: ['qa'] }]), f('a.js', 'b.js', 'c.js'), [], {}],
+  [RR([{ name: 'rip', deletionRatio: 0.8, gates: ['qa'] }]), f('a.js'), [], { added: 1, deleted: 99 }],
+  [withLabel, f('a.js'), [], { labels: ['needs-security-review'] }],
+  [withLabel, f('a.js'), [], { labels: [] }],
+  [ownedRule, f('src/billing/charge.js'), [], { owners }],
+  [ownedRule, f('src/ui.js'), [], { owners }],
+  [ownedRule, f('src/billing/charge.js'), [], { owners: null }],
+  [RR([{ name: 'release-notes', paths: ['docs/RELEASE.md'], gates: ['qa'] }],
+    { exempt: [{ name: 'docs-only', only: true, paths: ['docs/**'], gates: [] }] }), f('docs/RELEASE.md'), [], {}],
 ];
-const disagreement = routeCases.find(([c, d, b]) =>
-  JSON.stringify(mirrored(c, d, b)) !== JSON.stringify(deriveRoute(c, d, b)));
+const disagreement = routeCases.find(([c, d, b, x]) =>
+  JSON.stringify(mirrored(c, d, b, x)) !== JSON.stringify(deriveRoute(c, d, b, x)));
 ok('the workflow derives exactly what the CLI derives', !disagreement,
   disagreement ? `diverged on ${JSON.stringify(disagreement[1])}` : '');
+ok('the workflow refuses the same broken policies the CLI does',
+  throws(() => mirrored({ gates: ['review'], routing: { rules: [{ paths: ['**'], gates: ['nope'] }] } }, f('a.js'), [], {})));
 
 console.log('\nrouting: a real dock');
 dd(['start', '416']);

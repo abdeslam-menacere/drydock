@@ -190,6 +190,23 @@ An exemption must cover the *whole* diff — one stray file and it doesn't apply
 That awkwardness is deliberate: it is what stops a real change from riding along
 inside a documentation PR.
 
+Rules go the other way and only ever add:
+
+```jsonc
+"rules": [
+  { "name": "auth",       "paths": ["src/auth/**"],   "gates": ["qa", "security"] },
+  { "name": "migrations", "paths": ["migrations/**"], "gates": ["qa"] },
+  { "name": "large",      "linesChanged": 400,        "gates": ["qa"] },
+  { "name": "requested",  "label": "needs-security-review", "gates": ["security"] }
+]
+```
+
+The required set is the **union** of the baseline and every rule that fires, not
+the first match. Risks compose, and union is what guarantees that adding a rule
+can never shorten somebody else's route. Author-controlled signals like `label`
+are allowed to add and nothing else; a config that tries to use one to reach
+below the baseline is refused with an error naming the rule.
+
 ## Works with your agent
 
 The behavioural contracts live in `.github/`, which is simultaneously:

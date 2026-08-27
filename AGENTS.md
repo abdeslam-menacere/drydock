@@ -50,6 +50,8 @@ Three rules are load-bearing:
 - **Fail closed.** Unreadable diff, binary file, rename, oversize, or a touch of `drydock.config.json` / `.github/workflows/**` / `CODEOWNERS` → every gate.
 - **Routing allocates judgement, never verification.** SHA binding, ordering, and staleness apply identically on every route.
 
+`routing.rules` are additive and combine by **union**, never first-match-wins — risks compose, and union is what makes adding a rule a monotone operation. Author-controlled signals (`label`) may only add; `validateRouting` refuses a config that tries to reach below the baseline with one, and refuses unknown gate names, rather than letting either fail silently.
+
 An absent `routing` block must reproduce v0.1 behaviour exactly. That is why `routing` is deliberately not in `DEFAULTS`.
 
 ## Routing (`SPEC.md` §11)

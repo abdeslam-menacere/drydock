@@ -82,6 +82,36 @@ export function diffBinaryPaths(base, head, cwd) {
     .filter(Boolean);
 }
 
+/**
+ * Total lines added and deleted between `base` and `head`, or null if unreadable.
+ *
+ * Binary files report `-` for both counts and are skipped; a diff containing one
+ * has already taken the maximum path by the time anybody asks for totals.
+ */
+export function diffStats(base, head, cwd) {
+  const r = tryRun('git', ['diff', '--numstat', '--find-renames', `${base}...${head}`], { cwd });
+  if (!r.ok) return null;
+
+  let added = 0;
+  let deleted = 0;
+  for (const line of r.out.split('\n')) {
+    if (!line.trim() || line.startsWith('-\t-\t')) continue;
+    const [a, d] = line.split('\t');
+    const na = Number(a);
+    const nd = Number(d);
+    if (!Number.isFinite(na) || !Number.isFinite(nd)) return null;
+    added += na;
+    deleted += nd;
+  }
+  return { added, deleted };
+}
+
+/** Contents of `path` at `ref`, or null when the file does not exist there. */
+export function showFile(ref, filePath, cwd) {
+  const r = tryRun('git', ['show', `${ref}:${filePath}`], { cwd });
+  return r.ok ? r.out : null;
+}
+
 export function pushBranch(branch, cwd) {
   return tryRun('git', ['push', '-u', 'origin', branch], { cwd });
 }

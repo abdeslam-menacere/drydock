@@ -5,7 +5,7 @@ import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
 import { isAgent } from './gate.js';
-import { routeForDock } from './route.js';
+import { routeOrDie } from './route.js';
 
 export default function land(args) {
   const root = repoRoot();
@@ -30,7 +30,7 @@ export default function land(args) {
 
   // What this change earns, derived from its own diff. A pure projection —
   // never stored, recomputed here so a revert relaxes the route for free.
-  const route = routeForDock(cfg, dock, head);
+  const route = routeOrDie(cfg, dock, head, root);
 
   // --- Gate verification. This is the whole point of Drydock. ---
   const problems = [];

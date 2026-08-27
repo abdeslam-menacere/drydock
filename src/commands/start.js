@@ -66,6 +66,10 @@ export default async function start(args) {
     worktree: dockDir,
     base: cfg.baseBranch,
     agent: cfg.agent,
+    // Labels are a routing signal (§11.3). Recorded here as a floor; `route`
+    // re-reads them from the issue when a rule asks, because a label added
+    // after the dock opened is exactly the case worth honouring.
+    labels: (meta.labels ?? []).map((l) => l?.name ?? l).filter(Boolean),
     createdAt: new Date().toISOString(),
     gates: Object.fromEntries(cfg.gates.map((g) => [g, null])),
     status: 'open',

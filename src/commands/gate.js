@@ -3,7 +3,7 @@ import { log, die } from '../lib/log.js';
 import { parseArgs } from '../lib/args.js';
 import * as git from '../lib/git.js';
 import * as notify from './notify.js';
-import { routeForDock } from './route.js';
+import { routeOrDie } from './route.js';
 
 /**
  * Who is recording this verdict.
@@ -58,7 +58,7 @@ export default function gate(args) {
   // Gates are ordered, and only the gates this change earns are enforced.
   // A gate outside the route may still be recorded — additions are always
   // safe — but it cannot block one that is inside it.
-  const required = routeForDock(cfg, dock, git.headSha(dock.worktree)).gates;
+  const required = routeOrDie(cfg, dock, git.headSha(dock.worktree), root).gates;
   const order = required.includes(name) ? required : cfg.gates;
   const idx = order.indexOf(name);
   for (let i = 0; i < idx; i++) {

@@ -119,6 +119,43 @@ automatically, as does anything binary, renamed, oversized, or unreadable.
 An exemption has to cover the whole diff. One source file in a docs-only pull
 request and the exemption stops applying — which is the entire point.
 
+Rules go the other way: they only ever **add**.
+
+```jsonc
+"routing": {
+  "baseline": ["review"],
+  "exempt": [
+    { "name": "docs-only", "only": true, "paths": ["**/*.md", "docs/**"], "gates": [] }
+  ],
+  "rules": [
+    { "name": "auth",       "paths": ["src/auth/**"],   "gates": ["qa", "security"] },
+    { "name": "migrations", "paths": ["migrations/**"], "gates": ["qa"] },
+    { "name": "large",      "linesChanged": 400,        "gates": ["qa"] },
+    { "name": "requested",  "label": "needs-security-review", "gates": ["security"] }
+  ]
+}
+```
+
+Four rules, not twenty. The required set is `baseline ∪ every rule that fires` —
+**union, not first-match-wins**, because risks compose: a change touching both
+`src/auth/` and `migrations/` needs both. Union is also what makes adding a rule
+a safe act. It can never shorten anybody's route.
+
+Within a single rule the conditions are ANDed, so
+`{ "paths": ["src/auth/**"], "linesChanged": 400 }` reads as "a large change to
+auth". Available conditions are `paths`, `filesTouched`, `linesChanged`,
+`deletionRatio`, `label`/`labels`, and `codeowners`.
+
+`label` is author-controlled, so it is allowed to add and nothing else. A label
+in an `exempt` entry, or a rule carrying `only`, is refused when the policy is
+first read, with an error naming the rule — a `trivial` label that quietly did
+nothing would be worse than one that fails loudly. Unknown gate names are
+refused the same way, rather than becoming a rule that silently never fires.
+
+`codeowners: ["@org/payments"]` fires when the diff touches a path that team
+owns; `codeowners: true` fires on any owned path. CODEOWNERS is read from the
+base branch too, for the same reason the rest of the policy is.
+
 ### 3. Review gate
 
 ```bash
