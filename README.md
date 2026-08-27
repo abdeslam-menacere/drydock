@@ -42,10 +42,8 @@ drydock clean 412                 # worktree and branch removed
 
 How much runs unattended is a question you answer once, on first run. Full
 autopilot, trust-but-verify, or fully manual are the same code path with
-different config — see [`SPEC.md` §10](SPEC.md).
-
-**Not shipped yet — #2.** There is no first-run wizard and no `drydock config`;
-today every command runs the manual path.
+different config — see [`SPEC.md` §10](SPEC.md). `drydock config` reopens that
+question at any time.
 
 **[→ Getting started](docs/GETTING-STARTED.md)** — empty repo to gated PR in fifteen minutes.
 
@@ -65,9 +63,7 @@ code .
 Then `drydock start <issue>` and work the loop by hand — see
 [Getting started](docs/GETTING-STARTED.md).
 
-**Not shipped yet — #5, #2.** `/drydock <issue>` in Copilot Chat (#5), and a
-first-run interview that writes your autonomy preference to
-`drydock.config.json` and never asks again (#2).
+**Not shipped yet — #5.** `/drydock <issue>` in Copilot Chat.
 
 You get, wired together and ready:
 
@@ -92,11 +88,9 @@ Auto-merge has one prerequisite, and it is not optional. On GitHub → **Setting
 
 With `drydock-gates` set as a **required** status check, an unverified PR cannot
 merge. Without it, auto-merge merges immediately and unverified — which is
-strictly worse than doing nothing. Set it yourself and check it yourself.
-
-**Not shipped yet — #2, #3.** `init` preflights git, `gh`, and `code` only; it
-does not inspect branch protection (#2). `drydock land` does not arm auto-merge,
-so nothing in Drydock can merge a pull request for you today (#3).
+strictly worse than doing nothing. `drydock init` checks both and tells you
+which one is missing, but it cannot set them for you: they are repository
+settings, and that is deliberate.
 
 Install the skills into Copilot CLI globally:
 
@@ -151,13 +145,16 @@ Resume it later by name. Orchestrated, the same isolation comes from spawning
 each agent with fresh context instead — **not shipped yet — #5.**
 
 **A reviewer that never read the author's summary.** An agent may record a gate
-verdict, attributed `agent:<role>`. Today that attribution comes from the
-`DRYDOCK_ACTOR` environment variable, which `drydock gate` stamps into the
-receipt's `By` column:
+verdict, attributed `agent:<role>`. Pass `--as` and `drydock gate` stamps it into
+the receipt's `By` column:
 
 ```bash
-DRYDOCK_ACTOR=agent:drydock-reviewer drydock gate 412 review --pass --note "scope clean"
+drydock gate 412 review --pass --as agent:drydock-reviewer --note "scope clean"
 ```
+
+`DRYDOCK_ACTOR` works as a fallback, but the flag wins over it on purpose — an
+environment variable outlives the command that set it, and a stale one files an
+agent's verdict under a human's name.
 
 That is only worth something because the reviewer and QA agents are given the
 issue text and the diff and nothing else — not the developer's account of its
@@ -228,9 +225,9 @@ ordering, SHA binding, staleness detection, `land` opening a real PR with a
 receipt, and the CI receipt check rejecting stale receipts, missing receipts,
 copied receipts, and partial gates.
 
-**The whole CLI surface that exists today** is `init`, `start`, `status`,
-`gate`, `land`, and `clean`. Any other command in this repo's documentation is
-marked **Not shipped yet — #N**.
+**The whole CLI surface that exists today** is `init`, `config`, `start`, `run`,
+`status`, `gate`, `land`, and `clean`. Any other command in this repo's
+documentation is marked **Not shipped yet — #N**.
 
 ### Documented but not shipped yet
 
@@ -240,18 +237,10 @@ decision is final; the code is not all written. Nothing below works today:
 
 | Marked | What it is | Ships in |
 |---|---|---|
-| `drydock config`, the first-run interview, `init` checking branch protection | Autonomy level as configuration | **#2** |
-| `drydock gate --as <actor>`, `drydock land` arming auto-merge | Verdict attribution as a flag; unattended merge | **#3** |
-| The `## Operating policy` block in a generated `DOCK.md` | Policy rendered where the agent will read it | **#4** |
 | `/drydock <issue>`, `.github/prompts/drydock.prompt.md`, `.github/agents/drydock-orchestrator.md` | The orchestrator and its trigger | **#5** |
 
-Two consequences worth stating outright:
+One consequence worth stating outright:
 
-- **Attribution works today, but through the environment, not a flag.**
-  `drydock gate` reads `DRYDOCK_ACTOR` and stamps it into the receipt. Passing
-  `--as agent:drydock-reviewer` does nothing — unknown flags are silently
-  ignored, so the verdict would be recorded under your own username. Use
-  `DRYDOCK_ACTOR` until #3 lands.
 - **The unattended loop does not run yet.** Every documented autonomous run is
   the manual loop with agents doing the typing.
 

@@ -51,10 +51,10 @@ The first time you run it, Drydock asks how you want the loop to behave — full
 autopilot, trust-but-verify, or fully manual — writes your answer to
 `drydock.config.json`, and never asks again. `drydock config` reopens it.
 
-**Not shipped yet — #5, #2.** `/drydock` has no prompt file behind it yet (#5),
-and there is no interview and no `config` command — `drydock config` exits with
-`Unknown command: config` (#2). Skip to [step 4](#4-open-a-dock) and run the
-loop by hand; the gates, the receipt, and the CI check are all real today.
+**Not shipped yet — #5.** `/drydock` has no prompt file behind it yet. Skip to
+[step 4](#4-open-a-dock) and run the loop by hand; the gates, the receipt, and
+the CI check are all real today. The interview and `drydock config` are real
+too — run `drydock init` and it will ask.
 
 Make the CLI available as `drydock` (optional, but every example reads better):
 
@@ -89,9 +89,9 @@ merging. Without one there is nothing to wait for, so the pull request merges
 the moment it opens — unverified, and strictly worse than no automation at all.
 The unattended loop has no human backstop; this rule is the backstop.
 
-**Not shipped yet — #3, #2.** `drydock land` does not arm auto-merge (#3), and
-`init` does not inspect your branch protection settings — its preflight covers
-git, `gh`, and `code` only (#2). Set the rule yourself and verify it yourself.
+`drydock init` checks both settings and tells you which is missing. It cannot
+set them for you — they are repository settings, and a tool that could grant
+itself merge rights would be the wrong tool.
 
 ---
 
@@ -130,8 +130,8 @@ The orchestrator fetches the issue, opens the dock, and runs the loop:
 5. A reviewer agent is spawned with the issue text and `git diff` — and nothing
    else. It does not get the developer's summary, so the gate is a review rather
    than a countersignature.
-6. `drydock gate 1 review --as agent:drydock-reviewer` — `--as` **not shipped yet — #3**
-7. QA the same way → `drydock gate 1 qa --as agent:drydock-qa`
+6. `drydock gate 1 review --pass --as agent:drydock-reviewer`
+7. QA the same way → `drydock gate 1 qa --pass --as agent:drydock-qa`
 8. `drydock land 1` — a pull request opens with the gate receipt.
 9. CI verifies the receipt; GitHub merges when it's green.
 
@@ -235,18 +235,17 @@ drydock gate 1 qa     --pass --note "criteria met, probed edge cases"
 ```
 
 Run the reviewer and QA agents first (`.github/agents/`), then record their
-verdict. An agent recording its own verdict sets `DRYDOCK_ACTOR`, which
-`drydock gate` stamps into the receipt's `By` column, so the receipt always
-shows who decided:
+verdict. An agent recording a verdict passes `--as`, which `drydock gate` stamps
+into the receipt's `By` column, so the receipt always shows who decided:
 
 ```bash
-DRYDOCK_ACTOR=agent:drydock-reviewer drydock gate 1 review --pass --note "scope clean"
+drydock gate 1 review --pass --as agent:drydock-reviewer --note "scope clean"
 ```
 
-**Not shipped yet — #3.** A `--as <actor>` flag arrives in #3. Until it does,
-do not pass it: `drydock gate` ignores unknown flags instead of rejecting them,
-so `--as agent:drydock-reviewer` silently files an agent's verdict under your
-name — the one direction of error this system exists to prevent.
+`DRYDOCK_ACTOR=agent:drydock-reviewer` is an equivalent fallback. Prefer the
+flag: it is scoped to the one invocation that carries it, whereas the variable
+persists for the life of the shell and a forgotten one files an agent's verdict
+under your name — the one direction of error this system exists to prevent.
 
 **Fail freely:**
 
@@ -359,8 +358,9 @@ not change that — an agent that cannot pass its own gates does not merge.
 
 **A pull request merged without CI having run** — auto-merge is on but
 `drydock-gates` is not a **required** status check on the branch. Fix the branch
-protection rule; see step 1. Drydock cannot have armed auto-merge itself — that
-is **not shipped yet — #3** — so this is a repository setting.
+protection rule; see step 1. `drydock land` arms auto-merge, and arming it
+against an unprotected branch is what produces this — the check is the backstop,
+not the arming.
 
 **CI fails with `No Drydock gate receipt in this PR`** — the PR was opened by
 hand. Close it and use `drydock land`.

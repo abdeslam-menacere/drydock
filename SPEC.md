@@ -175,7 +175,7 @@ This section is a decision, not a description of the shipped CLI. As of `v0.1.0`
 | Policy reaching the agent | the `## Operating policy` block rendered into `DOCK.md` by `start` | **#4** |
 | §10.3 — the context boundary, enforced | `.github/agents/drydock-orchestrator.md`, `.github/prompts/drydock.prompt.md` | **#5** |
 
-Until #3, §10.1 attribution works through the `DRYDOCK_ACTOR` environment variable, which `gate` writes to the manifest's `by` field. `gate` ignores unrecognised flags rather than rejecting them, so `--as` passed today is silently dropped and the verdict is attributed to the invoking user — an agent verdict recorded as a human one. Rejecting unknown flags belongs with #3.
+§10.1 attribution is delivered: `gate --as <actor>` writes the actor to the manifest's `by` field, and `resolveActor()` ranks the flag above `DRYDOCK_ACTOR` deliberately, because an environment variable persists for the life of a shell and a stale one filed under the wrong name is exactly the error this is meant to prevent. Unknown options are rejected rather than ignored, so a mistyped flag fails loudly instead of recording the wrong thing and exiting 0.
 
 ## 11. Heaviness decision
 

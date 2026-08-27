@@ -32,7 +32,7 @@ One issue → one branch → one worktree → one agent → policy-gated merge. 
 
 Gate verdicts bind to a commit SHA and go stale on any new commit. This is the core of the product. Do not add an override flag, a `--skip-gates`, or a `--force` that bypasses verification. If a bypass is genuinely needed, it belongs in branch protection settings where it's auditable, not in the CLI.
 
-Agents may record verdicts, attributed `agent:<role>` — today through the `DRYDOCK_ACTOR` environment variable, which `gate` stamps into the receipt (a `--as` flag arrives in #3). That is a change of *who*, not of *what*: ordering, SHA binding, and staleness apply identically. Two rules make an agent verdict worth something — the reviewer and QA agents must be context-independent from the developer agent, and the whole trail lands in the issue comments and the PR receipt.
+Agents may record verdicts, attributed `agent:<role>` — pass `--as agent:<role>` to `drydock gate`, which stamps it into the receipt. `DRYDOCK_ACTOR` is the fallback, and the flag deliberately wins over it: an environment variable outlives the command that set it, and a stale one files a verdict under the wrong name. That is a change of *who*, not of *what*: ordering, SHA binding, and staleness apply identically. Two rules make an agent verdict worth something — the reviewer and QA agents must be context-independent from the developer agent, and the whole trail lands in the issue comments and the PR receipt.
 
 How much of the loop runs unattended is configuration, not code. Do not hardcode an autonomy level, and do not remove the fully-manual path.
 
