@@ -65,10 +65,14 @@ critical_actions:
     real test output in the verdict; off posts nothing and returns the same
     evidence and verdict to the orchestrator. Never invent test output.
   - >
-    Record exactly one verdict against the tested commit with
-    "drydock gate <issue> qa --pass --as agent:drydock-qa --note \"<reason>\""
-    or "drydock gate <issue> qa --fail --as agent:drydock-qa --note
-    \"<reason>\"".
+    Capture the commit SHA before you run anything, and record exactly one
+    verdict against it with "drydock gate <issue> qa --pass --as agent:drydock-qa
+    --sha <tested> --note \"<reason>\"" or "drydock gate <issue> qa --fail --as
+    agent:drydock-qa --sha <tested> --note \"<reason>\"".
+  - >
+    If Drydock answers "the dock moved", the developer committed while you were
+    testing and your run no longer describes HEAD. Re-test the new commit and
+    record against that. Never re-run with the SHA the error reports.
   - "Never modify files outside this worktree — sibling docks are live."
   - >
     Never land or merge from this context. After recording the QA gate, hand

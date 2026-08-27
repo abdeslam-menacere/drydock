@@ -149,8 +149,12 @@ verdict, attributed `agent:<role>`. Pass `--as` and `drydock gate` stamps it int
 the receipt's `By` column:
 
 ```bash
-drydock gate 412 review --pass --as agent:drydock-reviewer --note "scope clean"
+drydock gate 412 review --pass --as agent:drydock-reviewer --sha "$REVIEWED" --note "scope clean"
 ```
+
+`--sha` is the commit the reviewer read, captured before it started reading. If
+the dock committed in the meantime, Drydock refuses the verdict rather than
+binding it to a commit nobody examined. Humans may omit it; agents may not.
 
 `DRYDOCK_ACTOR` works as a fallback, but the flag wins over it on purpose — an
 environment variable outlives the command that set it, and a stale one files an

@@ -48,6 +48,12 @@ A gate is **valid** only while `gate.sha === HEAD` of its worktree. Any new comm
 
 Failure mode it prevents: agent gets review approval, then "just fixes one more thing," and unreviewed code merges under a green check. This is not hypothetical — it is the default behaviour of every review workflow that stores approval as a boolean.
 
+**Which commit `sha` is.** It is the commit the reviewer *examined*, not HEAD at the moment the verdict was written. Those are the same instant only if nothing committed in between, and in an unattended loop that is not a safe assumption: a dock commits on its own schedule while a review is in flight. Capturing HEAD at write time silently binds the verdict to a commit nobody read, and `land` then sees a perfectly fresh gate — the exact inversion of this section. Staleness only ever detected commits made *after* a verdict; this window sat before it.
+
+So the reviewer states what it read, with `--sha`, and Drydock refuses the verdict when that is not HEAD rather than recording it against something else. Refusing is the whole point: the correct response to a moved dock is to re-read it, not to re-target the verdict.
+
+`--sha` is **mandatory for `agent:` actors and optional for humans**. The window is a property of concurrency, and the unattended path is where it is real. A human at a terminal is the same person who just read the diff, seconds earlier, and would notice — so the manual path keeps its short command. This is deliberate asymmetry, not an oversight: the stricter rule falls on the path that cannot notice.
+
 ### 4.2 Ordering
 
 Gates are an ordered list (`["review", "qa"]`). Gate *n* cannot be recorded until gates `0..n-1` have passed. Configurable per repo; teams may add `security` or `perf`.

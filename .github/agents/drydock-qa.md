@@ -59,11 +59,19 @@ Scale the protocol to `comments.verbosity`: `full` posts all three separately; `
 
 ## Verdict and gate
 
-Fail on any unmet criterion or any defect above trivial severity. Record the verdict against the commit you tested:
+Fail on any unmet criterion or any defect above trivial severity. Record the
+verdict against the commit you tested. Capture that SHA **before** you start
+testing, and pass it back with `--sha`:
 
 ```sh
-drydock gate <issue> qa --pass --as agent:drydock-qa --note "<reason>"
-drydock gate <issue> qa --fail --as agent:drydock-qa --note "<reason>"
+TESTED=$(git -C <worktree> rev-parse HEAD)   # before you run anything
+
+drydock gate <issue> qa --pass --as agent:drydock-qa --sha "$TESTED" --note "<reason>"
+drydock gate <issue> qa --fail --as agent:drydock-qa --sha "$TESTED" --note "<reason>"
 ```
+
+If Drydock answers *the dock moved*, the developer committed while you were
+testing, so your run does not describe HEAD. Re-test the new commit and record
+against that — do **not** re-run with the SHA the error reports.
 
 Run exactly one of those commands. Then hand control back to the orchestrator; never land or merge from this context.

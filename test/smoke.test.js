@@ -350,14 +350,15 @@ ok('a blank source is skipped, not recorded',
 ok('an agent: prefix marks an agent verdict', isAgent('agent:drydock-reviewer'));
 ok('a bare username is not an agent', !isAgent('ci-bot'));
 
-const asFlag = dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--note', 'diff only']);
+const headOf415 = () => git(['rev-parse', 'HEAD'], d415.worktree);
+const asFlag = dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--sha', headOf415(), '--note', 'diff only']);
 ok('gate with --as exits 0', asFlag.status === 0, asFlag.stdout + asFlag.stderr);
 ok('--as records that exact actor', gates415().review.by === 'agent:drydock-reviewer');
 ok('and keeps the note', gates415().review.note === 'diff only');
 
 // The failure this flag exists for: DRYDOCK_ACTOR persists across commands in a
 // shared shell, and once nearly filed an agent's verdict under a human's name.
-ddEnv(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer'], { DRYDOCK_ACTOR: 'human-alice' });
+ddEnv(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--sha', headOf415()], { DRYDOCK_ACTOR: 'human-alice' });
 ok('--as beats a leaked DRYDOCK_ACTOR', gates415().review.by === 'agent:drydock-reviewer');
 ddEnv(['gate', '415', 'review', '--pass'], { DRYDOCK_ACTOR: 'human-alice' });
 ok('DRYDOCK_ACTOR still works with no --as', gates415().review.by === 'human-alice');
@@ -366,8 +367,43 @@ ok('falls back to the shell user', gates415().review.by === 'ci-bot');
 ddBare(['gate', '415', 'review', '--pass']);
 ok('falls back to unknown when nothing identifies the actor', gates415().review.by === 'unknown');
 
+console.log('\nverdict binds to the commit that was reviewed');
+// The window this closes: a reviewer reads commit A, the dock commits B while
+// the review is still in flight, and the verdict is written afterwards. Bound
+// to HEAD-at-write-time it records B — a commit nobody read — and `land` then
+// sees a perfectly fresh gate. Staleness only ever caught commits made *after*
+// the verdict, so this direction was invisible.
+const reviewedA = headOf415();
+fs.writeFileSync(path.join(d415.worktree, 'moved.js'), '// committed while the review ran\n');
+git(['add', '-A'], d415.worktree);
+git(['commit', '-qm', 'chore: commit while the review is in flight'], d415.worktree);
+const movedB = headOf415();
+ok('the dock moved under the reviewer', reviewedA !== movedB);
+
+const onA = dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--sha', reviewedA]);
+ok('a verdict naming the reviewed commit is refused once the dock moved', onA.status !== 0,
+  onA.stdout + onA.stderr);
+ok('and says the dock moved', (onA.stdout + onA.stderr).includes('moved'), onA.stdout + onA.stderr);
+ok('and records nothing', gates415().review.by !== 'agent:drydock-reviewer');
+
+const noSha = dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer']);
+ok('an agent cannot record a verdict without naming a commit', noSha.status !== 0,
+  noSha.stdout + noSha.stderr);
+ok('and is told which flag it needs', (noSha.stdout + noSha.stderr).includes('--sha'));
+
+ok('gate rejects --sha with no value', dd(['gate', '415', 'review', '--pass', '--sha']).status !== 0);
+ok('gate rejects a --sha that names no commit here',
+  dd(['gate', '415', 'review', '--pass', '--sha', 'deadbeef']).status !== 0);
+// The manual path keeps its short command: a human is the same person who just
+// read the diff, so there is no window between reading and recording.
+ok('a human verdict still needs no --sha', dd(['gate', '415', 'review', '--pass']).status === 0);
+
+const onB = dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--sha', movedB]);
+ok('re-reading the new commit records it', onB.status === 0, onB.stdout + onB.stderr);
+ok('bound to exactly the commit the reviewer named', gates415().review.sha === movedB);
+
 console.log('\nreceipt attribution');
-dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--note', 'diff only']);
+dd(['gate', '415', 'review', '--pass', '--as', 'agent:drydock-reviewer', '--sha', headOf415(), '--note', 'diff only']);
 ddBare(['gate', '415', 'qa', '--pass', '--note', 'suite green'], { USERNAME: 'ci-bot' });
 const mixed = dd(['land', '415', '--dry-run']);
 ok('a mixed receipt renders', mixed.status === 0, mixed.stdout + mixed.stderr);
@@ -420,6 +456,7 @@ ok('run exits 0', rr.status === 0, rr.stdout + rr.stderr);
 ok('prints the gate commands', rr.stdout.includes(`drydock gate 415 review`));
 ok('renders this repo\'s gate order', rr.stdout.includes('Gates, in order: review → qa'));
 ok('tells the agent to attribute itself', rr.stdout.includes('--as agent:drydock-reviewer'));
+ok('tells the agent to bind the verdict to what it read', rr.stdout.includes('--sha <reviewed-sha>'));
 ok('offers no bypass', !/--skip-gates|--force/.test(rr.stdout));
 ok('run rejects an unknown flag', dd(['run', '415', '--yolo']).status !== 0);
 ok('run needs an issue number', dd(['run']).status !== 0);

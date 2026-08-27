@@ -61,11 +61,19 @@ Scale the protocol to `comments.verbosity`: `full` posts all three separately; `
 
 Return exactly one verdict using the **verdict** template. Be willing to fail things. A review gate that always passes is not a gate — it is a rubber stamp, and it makes this entire system worthless. If you are uncertain, fail and ask.
 
-Record that verdict against the commit you reviewed:
+Record that verdict against the commit you reviewed. Capture that SHA **before**
+you start reading, and pass it back with `--sha`:
 
 ```sh
-drydock gate <issue> review --pass --as agent:drydock-reviewer --note "<reason>"
-drydock gate <issue> review --fail --as agent:drydock-reviewer --note "<reason>"
+REVIEWED=$(git -C <worktree> rev-parse HEAD)   # before you read anything
+
+drydock gate <issue> review --pass --as agent:drydock-reviewer --sha "$REVIEWED" --note "<reason>"
+drydock gate <issue> review --fail --as agent:drydock-reviewer --sha "$REVIEWED" --note "<reason>"
 ```
+
+If Drydock answers *the dock moved*, the developer committed while you were
+reading. Your review is of code that is no longer HEAD. Re-read the new commit
+and record against that — do **not** re-run with the SHA the error reports, which
+would rubber-stamp a diff you never saw.
 
 Run exactly one of those commands. Then hand control back to the orchestrator; never start QA in this context.

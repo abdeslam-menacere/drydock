@@ -34,6 +34,12 @@ export function isDirty(cwd) {
   return tryRun('git', ['status', '--porcelain'], { cwd }).out.length > 0;
 }
 
+/** Full SHA for a ref, or null if it does not name a commit here. */
+export function resolveCommit(ref, cwd) {
+  const r = tryRun('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd });
+  return r.ok && r.out ? r.out.trim() : null;
+}
+
 export function pushBranch(branch, cwd) {
   return tryRun('git', ['push', '-u', 'origin', branch], { cwd });
 }

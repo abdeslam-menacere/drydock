@@ -55,8 +55,8 @@ That's the whole loop. The orchestrator:
 4. Asks you that batch — once, before any code exists. This is the only point in a clean run where it needs you.
 5. Spawns the developer to implement.
 6. Spawns the reviewer with fresh context: the issue text and `git diff`, and nothing else. It is not given the developer's summary. See `SPEC.md` §10.3.
-7. `drydock gate 412 review --pass --as agent:drydock-reviewer`
-8. Spawns QA the same way → `drydock gate 412 qa --pass --as agent:drydock-qa`
+7. `drydock gate 412 review --pass --as agent:drydock-reviewer --sha <what it read>`
+8. Spawns QA the same way → `drydock gate 412 qa --pass --as agent:drydock-qa --sha <what it tested>`
 9. `drydock land 412` — PR opens with the gate receipt, and auto-merge is armed when policy allows it.
 10. GitHub merges when CI is green.
 
@@ -100,13 +100,18 @@ Run the reviewer agent first, then record its verdict. An agent that records a
 verdict attributes it with `--as`, which lands in the receipt's `By` column:
 
 ```bash
-drydock gate 412 review --pass --as agent:drydock-reviewer --note "scope clean"
+drydock gate 412 review --pass --as agent:drydock-reviewer --sha "$REVIEWED" --note "scope clean"
 ```
 
-`DRYDOCK_ACTOR=agent:drydock-reviewer` is an equivalent fallback, and the flag
-deliberately outranks it. The variable persists for the life of a shell, so one
-left over from an earlier command files the next verdict under the wrong name —
-an agent verdict recorded as a human one.
+`--sha` is the commit it read, captured before it started. A dock that commits
+mid-review moves HEAD, and a verdict bound to the new HEAD would pass a diff
+nobody saw; Drydock refuses that rather than recording it. Agents must pass it,
+humans need not.
+
+`DRYDOCK_ACTOR=agent:drydock-reviewer` is an equivalent fallback for attribution,
+and the flag deliberately outranks it. The variable persists for the life of a
+shell, so one left over from an earlier command files the next verdict under the
+wrong name — an agent verdict recorded as a human one.
 
 Fail freely:
 

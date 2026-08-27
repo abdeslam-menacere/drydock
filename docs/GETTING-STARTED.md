@@ -130,8 +130,8 @@ The orchestrator fetches the issue, opens the dock, and runs the loop:
 5. A reviewer agent is spawned with the issue text and `git diff` — and nothing
    else. It does not get the developer's summary, so the gate is a review rather
    than a countersignature.
-6. `drydock gate 1 review --pass --as agent:drydock-reviewer`
-7. QA the same way → `drydock gate 1 qa --pass --as agent:drydock-qa`
+6. `drydock gate 1 review --pass --as agent:drydock-reviewer --sha <what it read>`
+7. QA the same way → `drydock gate 1 qa --pass --as agent:drydock-qa --sha <what it tested>`
 8. `drydock land 1` — a pull request opens with the gate receipt.
 9. CI verifies the receipt; GitHub merges when it's green.
 
@@ -239,13 +239,20 @@ verdict. An agent recording a verdict passes `--as`, which `drydock gate` stamps
 into the receipt's `By` column, so the receipt always shows who decided:
 
 ```bash
-drydock gate 1 review --pass --as agent:drydock-reviewer --note "scope clean"
+REVIEWED=$(git -C <worktree> rev-parse HEAD)   # before it reads anything
+drydock gate 1 review --pass --as agent:drydock-reviewer --sha "$REVIEWED" --note "scope clean"
 ```
 
-`DRYDOCK_ACTOR=agent:drydock-reviewer` is an equivalent fallback. Prefer the
-flag: it is scoped to the one invocation that carries it, whereas the variable
-persists for the life of the shell and a forgotten one files an agent's verdict
-under your name — the one direction of error this system exists to prevent.
+`--sha` names the commit the agent actually read. If the dock committed while
+the review was running, Drydock refuses the verdict instead of binding it to a
+commit nobody examined — re-read the new commit and record against that. Agents
+must pass it; humans may omit it, being the same person who just read the diff.
+
+`DRYDOCK_ACTOR=agent:drydock-reviewer` is an equivalent fallback for
+attribution. Prefer the flag: it is scoped to the one invocation that carries
+it, whereas the variable persists for the life of the shell and a forgotten one
+files an agent's verdict under your name — the one direction of error this
+system exists to prevent.
 
 **Fail freely:**
 

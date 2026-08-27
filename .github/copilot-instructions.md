@@ -59,12 +59,16 @@ core of the product.
 - Do not edit `.drydock/docks/*.json` by hand. Do not hand-write a gate receipt
   into a PR body.
 - A verdict may be recorded by an agent, attributed `agent:<role>`. Pass it
-  explicitly: `drydock gate <issue> <name> --pass --as agent:drydock-reviewer`.
-  `DRYDOCK_ACTOR` still works as a fallback, but prefer the flag — the variable
-  outlives the command that set it, and a stale one files your verdict under
-  someone else's name. A verdict is only worth something if the reviewer and QA
-  agents never saw the developer's summary or session — issue text and
-  `git diff` only. Do not review your own work.
+  explicitly, together with the commit you examined:
+  `drydock gate <issue> <name> --pass --as agent:drydock-reviewer --sha <reviewed>`.
+  Capture that SHA *before* you start reading — if the dock commits while you
+  review, Drydock refuses the verdict rather than binding it to a commit nobody
+  read, and you re-read the new one. `--sha` is required for agents, optional
+  for humans. `DRYDOCK_ACTOR` still works as an attribution fallback, but prefer
+  the flag — the variable outlives the command that set it, and a stale one
+  files your verdict under someone else's name. A verdict is only worth
+  something if the reviewer and QA agents never saw the developer's summary or
+  session — issue text and `git diff` only. Do not review your own work.
 
 ## Routing
 

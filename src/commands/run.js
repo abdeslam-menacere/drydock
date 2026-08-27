@@ -57,10 +57,11 @@ is no bypass, and you must not invent one.
    guessing silently. Escalate per the bar above.
 5. Commit in small atomic commits. Run the tests and report the real output.
 6. Review, with context independent of whoever implemented — the issue text and
-   \`git diff\` only, never the developer's own summary:
-   \`drydock gate ${issue} review --pass|--fail --as agent:drydock-reviewer --note "..."\`
-7. QA, likewise independent:
-   \`drydock gate ${issue} qa --pass|--fail --as agent:drydock-qa --note "..."\`
+   \`git diff\` only, never the developer's own summary. Bind the verdict to the
+   commit you actually read, not to whatever HEAD has become since:
+   \`drydock gate ${issue} review --pass|--fail --as agent:drydock-reviewer --sha <reviewed-sha> --note "..."\`
+7. QA, likewise independent and likewise bound to the commit it examined:
+   \`drydock gate ${issue} qa --pass|--fail --as agent:drydock-qa --sha <reviewed-sha> --note "..."\`
 8. \`drydock land ${issue}\` — gates are verified against HEAD, then the PR opens
    with the receipt${merge.enabled ? ' and auto-merge is armed' : ''}.
 9. Post the summary to the issue: what changed, files touched and why, real test
@@ -69,5 +70,10 @@ is no bypass, and you must not invent one.
 Never review your own work. Never edit \`.drydock/docks/*.json\` by hand. Never
 hand-write a gate receipt. If a gate goes stale, re-run it — that is the system
 working, not a problem to route around.
+
+\`--sha\` is the commit you read, captured before you start reading. A dock that
+commits while you review moves HEAD, and a verdict recorded against the new HEAD
+would pass code nobody examined. If Drydock tells you the dock moved, re-read the
+new commit; do not re-run with the SHA it reports.
 `;
 }
