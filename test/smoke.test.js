@@ -1327,7 +1327,9 @@ ok('and the renderer strips it even from a manifest that was edited by hand', ((
   const claims = [...body.matchAll(new RegExp(ROUTE_LIT.source, 'gm'))];
   return claims.length === 1 && claims[0][1] === 'review,qa';
 })());
-ok('and the workflow takes the last route line, not the first', /routeMatches\[routeMatches\.length - 1\]/.test(wf), 'expected the CI check to prefer the last drydock-route line');
+ok('and the workflow refuses a body carrying two route lines outright',
+  /routeMatches\.length > 1\)\s*\{\s*\n\s*core\.setFailed/.test(wf),
+  'expected the CI check to fail on more than one drydock-route line');
 ok('and for one arriving through the environment',
   resolveActor(null, { DRYDOCK_ACTOR: 'agent:review\n| qa | pass |' }) === 'agent:review qa pass');
 

@@ -388,15 +388,24 @@ jobs:
             // An older receipt has no route line; treat the gates it presents as
             // its claim, which reproduces the pre-routing check exactly.
             //
-            // The LAST match wins, not the first. `land` writes the route line
-            // below the table, so anything appearing above it came out of a
-            // cell — and a cell is caller-supplied text. Taking the first match
-            // would let a smuggled line outrank the one Drydock actually wrote,
-            // which is a route-shrinking primitive: every gate in `claimed` but
-            // not in `derived` (scorer additions, label-derived gates) would be
-            // shed without CI noticing.
+            // More than one is refused outright. No version of `land` can emit
+            // two — `gh pr edit --body` is a full replace and the body is built
+            // from fixed literals with sanitised values — so a second one means
+            // either a hand-edited body or a cell that escaped sanitisation.
+            // Picking one of them silently reinterprets the claim in whichever
+            // direction the parser happens to prefer; refusing turns an
+            // accidental paste into a loud failure and a deliberate one into a
+            // dead end. Fail-closed in both directions, which "first wins" and
+            // "last wins" each only manage in one.
             const routeMatches = [...body.matchAll(ROUTE_RE)];
-            const routeLine = routeMatches.length ? routeMatches[routeMatches.length - 1] : null;
+            if (routeMatches.length > 1) {
+              core.setFailed(
+                `This PR body carries ${routeMatches.length} \`drydock-route:v1\` lines, and a receipt claims exactly one route.\n` +
+                'Re-render it with `drydock land <issue>` rather than editing the body by hand.'
+              );
+              return;
+            }
+            const routeLine = routeMatches[0] || null;
             const claimed = routeLine
               ? routeLine[1].split(',').map((s) => s.trim()).filter(Boolean)
               : [...seen.keys()];
