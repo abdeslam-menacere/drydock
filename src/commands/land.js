@@ -8,6 +8,7 @@ import { routeOrDie } from './route.js';
 import { ensureScore } from './scorer.js';
 import { assertOnBranch } from './start.js';
 import { renderReceipt } from './receipt.js';
+import { assertGhAllowed } from './mcp-policy.js';
 
 export default function land(args) {
   const root = repoRoot();
@@ -21,6 +22,7 @@ export default function land(args) {
 
   const issue = cli.positionals.find((a) => /^\d+$/.test(a));
   if (!issue) die('Usage: drydock land <issue-number> [--dry-run]');
+  if (!cli.flags.has('--dry-run')) assertGhAllowed(cfg, 'landing a pull request');
 
   const dock = readDock(issue, root);
   if (!dock) die(`No dock for issue #${issue}.`);
@@ -134,6 +136,7 @@ function prOpenedComment(dock, url, head) {
  * which is strictly worse than dock mode rather than merely lighter.
  */
 function warnIfUnenforced(cfg, dock) {
+  assertGhAllowed(cfg, 'reading required checks');
   const checks = gh.requiredChecks(dock.base, dock.worktree);
   if (checks === null) {
     log.warn(`Could not read branch protection on ${dock.base} — cannot confirm the gates are enforced.`);

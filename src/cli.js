@@ -10,6 +10,7 @@ import gate from './commands/gate.js';
 import land from './commands/land.js';
 import status from './commands/status.js';
 import clean from './commands/clean.js';
+import mcp from './commands/mcp.js';
 import { log } from './lib/log.js';
 
 const VERSION = '0.1.0';
@@ -17,6 +18,7 @@ const VERSION = '0.1.0';
 const COMMANDS = {
   init:   [init,   'Scaffold Drydock in the current repo'],
   config: [config, 'Set how much Drydock does on its own (show | set | reset)'],
+  mcp:    [mcp,    'Approve portable integrations and inspect capabilities (setup | doctor)'],
   start:  [start,  'Open a dock for a GitHub issue (branch + worktree + agent brief)'],
   run:    [run,    'Print the orchestration prompt for an issue, for any agent surface'],
   route:  [route,  'Show which gates this change earns, and why'],

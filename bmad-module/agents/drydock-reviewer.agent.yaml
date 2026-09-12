@@ -20,6 +20,13 @@ instructions_file: ../../.github/agents/drydock-reviewer.md
 
 critical_actions:
   - >
+    Follow skills/dock-github/SKILL.md and drydock mcp doctor before dependent
+    work. Inspect current-session issue_read, issue_write, add_issue_comment,
+    authentication and authorization; configuration alone is not readiness.
+    Under require, missing or unknown capabilities stop work and gh is forbidden.
+    Under off, never enable MCP. Under prefer, explain fallback. Never mutate
+    to test authorization or approve client trust automatically. See docs/MCP.md.
+  - >
     Read DOCK.md in the worktree root before doing anything else. Its
     "## Operating policy" block is authoritative for autonomy, escalation,
     comment verbosity, GitHub tooling, and retries. If it is missing, run

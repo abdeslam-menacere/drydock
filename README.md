@@ -106,6 +106,21 @@ git and will otherwise fail with a confusing `Access is denied` error:
 export GH_TOKEN="$(gh auth token)"
 ```
 
+### Portable MCP integrations
+
+The existing plugin stays skills-only: installation does not silently enable
+MCP servers. Drydock ships an inert catalog for **GitHub, Microsoft Learn,
+Azure, and Playwright**, plus approved custom definitions.
+
+`drydock mcp setup --client <vscode|cli|app> --client-version <version>
+--servers github,learn,azure,playwright` previews a workspace-local portable
+plugin. Review the plan before repeating with `--apply`; client installation,
+trust, sign-in and package installation remain explicit user actions.
+`drydock mcp doctor` checks workflow-specific capabilities using fresh
+current-session observations where available, never configuration as a proxy for
+authorization. See **[MCP setup and diagnostics](docs/MCP.md)** for supported
+versions, migration, client switching, prerequisites, and policy boundaries.
+
 ## The problem
 
 Run three coding agents on one repo and you get three agents editing the same

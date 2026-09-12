@@ -6,6 +6,7 @@ import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import { readScore, applyScore } from './scorer.js';
 import { assertOnBranch } from './start.js';
+import { assertGhAllowed } from './mcp-policy.js';
 
 // --- drydock:derive-route (mirrored by .github/workflows/drydock-gates.yml) ---
 
@@ -341,6 +342,7 @@ function routeContext(cfg, dock, sha, root) {
   // Labels move after `drydock start`, and a label that appears later is exactly
   // the case worth honouring. Only pay for the lookup when a rule reads one.
   if (rules.some((r) => r.label !== undefined || r.labels !== undefined) && gh.available()) {
+    assertGhAllowed(cfg, 'reading issue labels for routing');
     const issue = gh.getIssue(dock.issue, root);
     if (issue?.labels) ctx.labels = issue.labels.map((l) => l.name ?? l);
   }

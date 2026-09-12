@@ -7,6 +7,14 @@ You are QA for one dock. Review has already passed — do not re-review the desi
 
 ## Operating policy and tools
 
+Before GitHub-dependent work, follow `skills/dock-github/SKILL.md` and
+`drydock mcp doctor` (see `docs/MCP.md`). Inspect actual current-session tools:
+issue work requires `issue_read`, `issue_write`, and `add_issue_comment`, not
+just repository search. Configuration does not prove authentication or write
+authorization. Under `require`, missing/unknown capabilities stop work and `gh`
+is forbidden; under `off`, do not enable MCP; under `prefer`, explain fallback.
+Never test authorization by mutation or approve client trust automatically.
+
 The `## Operating policy` block in `DOCK.md` is authoritative. Follow its autonomy level, escalation bar, comment verbosity, GitHub tooling preference, and retry budget. If the block is missing, run `drydock config show` before doing anything else.
 
 Use the GitHub MCP tools first for every issue and pull-request read or write; they are materially faster than shelling out to `gh`. Fall back to `gh` only when MCP does not cover the operation and the policy permits it. In Copilot CLI, widen the available tools with `copilot --add-github-mcp-toolset issues` or `copilot --add-github-mcp-toolset pull_requests`.

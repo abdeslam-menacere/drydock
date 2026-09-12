@@ -1,6 +1,7 @@
 import { loadConfig, repoRoot, readDock } from '../lib/config.js';
 import { die, log } from '../lib/log.js';
 import { parseArgs } from '../lib/args.js';
+import { githubPreflightText } from './mcp-policy.js';
 
 /**
  * Print the orchestration prompt for an issue.
@@ -48,6 +49,8 @@ is no bypass, and you must not invent one.
 - GitHub tooling: ${cfg.tools?.githubMcp}
 
 ## Steps
+
+${githubPreflightText(cfg)}
 
 1. Read issue #${issue}. Do not start work you cannot trace back to its text.
 2. ${dock ? `The dock already exists at \`${dock.worktree}\` on \`${dock.branch}\`.` : `\`drydock start ${issue}\` — this creates the branch, the worktree and DOCK.md.`}

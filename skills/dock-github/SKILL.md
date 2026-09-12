@@ -13,6 +13,36 @@ description: >
 
 ## Which tool
 
+Read `tools.githubMcp` from the operating policy first: `require` means no `gh`
+fallback, `prefer` means MCP first with an explained fallback, and `off` means
+use `gh` without enabling GitHub MCP.
+
+Before issue-dependent work, inspect the current client's actual server status
+and tool inventory. Issue workflows need `issue_read`, `issue_write`, and
+`add_issue_comment`; repository/code search alone is insufficient. PR/check
+reads need `pull_request_read` and the permissions for the requested method.
+Do not infer authentication, authorization, or tool exposure from configuration.
+
+Use `drydock mcp doctor --client <vscode|cli|app> --client-version <version>
+--workflow issue`. Where you can observe runtime state, provide the non-secret,
+fresh, scoped stdin observation described in `docs/MCP.md`, with this session's
+identifier. Normalize client-prefixed tool names to their canonical MCP names
+only when you have verified the actual tool. Leave unobserved fields unknown.
+Do not assert write authorization based on a successful read, and never create
+an issue/comment or mutate cloud resources merely to test permission.
+
+If `require` has any missing or unknown prerequisite, stop before dependent
+work and explain the affected capability and corrective action. Even a successful
+doctor result does not give the standalone Drydock CLI an MCP transport: its
+GitHub-dependent commands refuse under `require`. Escalate the transport boundary;
+do not hand-create a PR or receipt. Under `prefer`, explain missing MCP capability
+before the documented `gh` fallback. Optional integrations do not block GitHub work.
+
+For missing configuration, preview `drydock mcp setup` with explicit client,
+version and server selection, then obtain approval before adding `--apply`.
+Setup never installs packages, signs in, approves client trust, or changes global
+settings. See `docs/MCP.md` for switching clients, migration and troubleshooting.
+
 The Copilot CLI ships with GitHub tools enabled by default as a restricted subset.
 Widen it only when the task needs it:
 
@@ -22,7 +52,8 @@ copilot --add-github-mcp-toolset pull_requests # PR read
 copilot --add-github-mcp-tool <tool>           # one specific tool
 ```
 
-Anything not covered goes through `gh`, which Drydock already requires:
+Under `prefer`, anything not covered goes through `gh`. Under `off`, use `gh`
+directly. Under `require`, do not run these fallbacks:
 
 ```bash
 gh issue view 412 --json title,body,labels
