@@ -42,20 +42,29 @@ Sources: [canonical plugin authoring](https://github.com/github/docs/blob/main/c
 ### Client installation
 
 **CLI:** after reviewing installation/trust permissions, run
-`copilot plugin install ./.drydock/mcp-plugin`. This caches the plugin; reinstall
-after generation changes.
+`copilot plugin install ./.drydock/mcp-plugins/cli`. This installs
+`drydock-workspace-cli` and caches its content; reinstall that variant after
+generation changes.
 
-**VS Code:** register the local generated folder using the documented
-`chat.pluginLocations` setting, then inspect/enable it in the Plugins UI.
+**VS Code:** register only `.drydock/mcp-plugins/vscode` using the documented
+`chat.pluginLocations` setting, then inspect/enable `drydock-workspace-vscode`
+in the Plugins UI. Do not register the parent folder or another client's variant.
 This is not the obsolete `chat.plugins.paths` setting. Drydock does not edit
 user/global settings or answer Workspace Trust.
 
 **App:** the documentation says CLI-configured MCP servers are automatically
-available. Install the local plugin through the supported CLI command above,
+available. Install the app variant with
+`copilot plugin install ./.drydock/mcp-plugins/app`,
 then inspect **Customize > MCP > Installed** in the app and confirm its actual
 tools. Native app plugin installation uses **Customize > Plugins** and a
 configured marketplace; no local-folder picker is assumed or automated.
 Configuration sharing does not authorize copying authentication material.
+CLI and app may share installed plugins: distinct manifest names prevent one
+variant's installation from overwriting the other, but do not imply isolated
+client activation. Activate only the intended variant in the current client
+and inspect its tools; never enable both copies in one session. If the installed
+clients cannot isolate activation, explicitly switch the active variant when
+switching clients rather than claiming simultaneous independent registrations.
 
 ## Pinned packages, runtimes and sign-in
 
@@ -122,10 +131,14 @@ software, installing a plugin in a client, signing in, enabling tools, or
 accepting trust prompts. Drydock never performs those actions for you.
 
 Setup writes `.drydock/mcp.json`, the authoritative approved definition set,
-and derives `.drydock/mcp-plugin/plugin.json`, `mcp.json`, and existing Drydock
-skills. `managed.json` records hashes of generated files so an upgrade cannot
+and derives `.drydock/mcp-plugins/<client>/plugin.json`, `mcp.json`, and existing
+Drydock skills. Each client has a distinct `drydock-workspace-<client>` manifest
+name and its own `managed.json`, which records generated-file hashes so an upgrade cannot
 silently overwrite hand edits. These are non-secret, versionable configuration,
 not authentication or runtime state. Preview without `--apply` writes nothing.
+These client directories are derived artifacts, not independently maintained
+definition sets. Setup only writes the selected client's directory and the
+single canonical registry; it never rewrites another client's registered files.
 
 `--servers` adds named integrations from the shipped catalog to the approved
 set; it does not remove previously approved servers. Subsequent setup can omit
@@ -283,7 +296,10 @@ requested PR/status/check method); `docs` requires Learn search/fetch;
 `browser` requires Playwright navigation/snapshot; `custom` uses the selected
 entry's `requiredTools`. Optional Azure/browser/docs integrations do not block
 unrelated issue work. Explicitly selecting an integration makes it relevant to
-that diagnostic run.
+that diagnostic run **in addition to** the named workflow's mandatory
+integrations. For example, `--workflow issue --servers learn` checks both GitHub
+issue/comment capabilities and Learn; Learn cannot substitute for GitHub.
+Use `--workflow custom --servers learn` for a Learn-only diagnostic.
 
 ## Policy and CLI transport
 
@@ -302,8 +318,10 @@ handoff prompt. Gate authority, SHA binding, route computation and ordering
 are unchanged.
 
 `doctor` exits nonzero when relevant MCP readiness is not established, except
-GitHub-only workflows under `prefer`/`off`, where the allowed CLI fallback is
-reported (not tested). `mcpReady` remains false; exit zero in that case does
+that under `prefer`/`off` the allowed CLI fallback can cover GitHub alone
+(reported, not tested). All additional integrations must still be ready; a
+GitHub fallback never covers missing Learn/Azure/browser capabilities.
+`mcpReady` remains false when using fallback; exit zero in that case does
 **not** claim MCP readiness. Use `--json` for the structured result.
 
 ## Switching clients, worktrees, and upgrading
@@ -315,9 +333,24 @@ changes sibling sessions or global client files.
 
 On switching clients, rerun setup for that client/version, supply evidence of
 its existing/built-in connections, approve changes, and install/enable the local
-plugin in that client. Authenticate separately. Observations from the previous
+plugin from `.drydock/mcp-plugins/<client>` in that client. Authenticate separately. Observations from the previous
 client/session cannot be reused. The canonical set stays the authority; client
 registration is not three independently maintained server lists.
+Setting up CLI or app cannot rewrite the live folder registered by VS Code,
+including when VS Code reuses an existing or disabled connection. Likewise,
+upgrading one client's output leaves other client outputs byte-for-byte intact.
+Rerun setup explicitly for each client when you want that client to pick up a
+canonical definition or policy change; old client artifacts are not automatically
+refreshed. Keep the active client's tools aligned with its current policy.
+
+**Migrating the earlier shared output:** if `.drydock/mcp-plugin/plugin.json`
+or `mcp.json` exists, setup refuses without writing anything. First unregister
+or disable the shared `drydock-workspace` plugin in every client, then move the
+reviewed `.drydock/mcp-plugin` folder to a backup location. Keep
+`.drydock/mcp.json`. Preview/apply setup separately for each client and register
+the exact new client folder/name above. Drydock cannot observe registrations
+from files alone, so it neither deletes the old folder nor silently alters a
+possibly live installation.
 
 After a Drydock upgrade, preview setup again. Unmodified baseline definitions
 advance to the new catalog pins; canonical overrides and disabled entries stay

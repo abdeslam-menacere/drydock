@@ -208,6 +208,13 @@ function fixture(fn) {
 function clientArgs(client = 'cli') {
   return ['--client', client, '--client-version', loadCatalog().clients[client].pluginMilestone ?? '1.0.0'];
 }
+const pluginDir = (root, client = 'cli') => path.join(root, '.drydock', 'mcp-plugins', client);
+function pluginSnapshot(root, client) {
+  const dir = pluginDir(root, client);
+  return Object.fromEntries(fs.readdirSync(dir, { recursive: true })
+    .filter((file) => fs.statSync(path.join(dir, file)).isFile())
+    .sort().map((file) => [file, fs.readFileSync(path.join(dir, file), 'utf8')]));
+}
 
 test('a boolean-looking flag value never becomes installation approval', () => fixture(({ root, cli }) => {
   const result = cli(['setup', ...clientArgs(), '--servers', 'learn', '--apply=false']);
@@ -225,11 +232,13 @@ test('all clients generate from one catalog; approval and repeated setup are ide
     assert.equal(fs.existsSync(path.join(root, '.drydock')), false);
     const applied = cli([...args, '--apply']);
     assert.equal(applied.status, 0, applied.stderr);
-    const plugin = path.join(root, '.drydock', 'mcp-plugin');
+    const plugin = pluginDir(root, client);
     const definitions = readJson(path.join(plugin, 'mcp.json')).mcpServers;
     assert.deepEqual(Object.keys(readJson(path.join(plugin, 'plugin.json'))).sort(),
       ['$schema', 'author', 'description', 'license', 'name', 'version']);
     assert.equal(readJson(path.join(plugin, 'plugin.json')).$schema, 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json');
+    assert.equal(readJson(path.join(plugin, 'plugin.json')).name, `drydock-workspace-${client}`);
+    assert.ok(JSON.parse(applied.stdout).install.includes(`.drydock/mcp-plugins/${client}`));
     assert.equal(readJson(path.join(plugin, 'mcp.json')).$schema, 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json');
     for (const definition of Object.values(definitions)) {
       assert.ok(['stdio', 'streamable-http', 'sse'].includes(definition.type));
@@ -248,7 +257,7 @@ test('setup respects off, preserves custom definitions and intentional output ov
   fs.writeFileSync(path.join(root, 'drydock.config.json'), JSON.stringify(config));
   const args = ['setup', ...clientArgs(), '--servers', 'github,learn', '--apply', '--json'];
   assert.equal(cli(args).status, 0);
-  const file = path.join(root, '.drydock', 'mcp-plugin', 'mcp.json');
+  const file = path.join(pluginDir(root), 'mcp.json');
   assert.equal(readJson(file).mcpServers.github, undefined);
   const registry = path.join(root, '.drydock', 'mcp.json');
   const approved = readJson(registry);
@@ -273,7 +282,7 @@ test('existing disabled aliases are reused without rewriting JSONC or exposing s
   const result = cli(['setup', ...clientArgs('vscode'), '--servers', 'github', '--apply', '--json']);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.readFileSync(file, 'utf8'), content);
-  assert.equal(readJson(path.join(root, '.drydock', 'mcp-plugin', 'mcp.json')).mcpServers.github, undefined);
+  assert.equal(readJson(path.join(pluginDir(root, 'vscode'), 'mcp.json')).mcpServers.github, undefined);
   assert.ok(!result.stdout.includes('sensitive-example'));
 }));
 
@@ -284,7 +293,7 @@ test('migration requires explicit selection and refuses credentials without touc
   const result = cli(['setup', ...clientArgs(), '--import', 'source.json', '--servers', 'custom', '--apply']);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.readFileSync(file, 'utf8'), content);
-  assert.deepEqual(readJson(path.join(root, '.drydock', 'mcp-plugin', 'mcp.json')).mcpServers.custom, remote);
+  assert.deepEqual(readJson(path.join(pluginDir(root), 'mcp.json')).mcpServers.custom, remote);
   const rejected = cli(['setup', ...clientArgs(), '--import', 'source.json', '--servers', 'secret', '--apply']);
   assert.notEqual(rejected.status, 0);
   assert.ok(!rejected.stderr.includes('sensitive-example'));
@@ -299,7 +308,7 @@ test('built-in reuse needs scoped evidence and does not claim readiness from reu
     '--session', scope.session, '--observations-stdin', '--json'], JSON.stringify(current));
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /not a readiness claim/);
-  assert.deepEqual(readJson(path.join(root, '.drydock', 'mcp-plugin', 'mcp.json')).mcpServers, {});
+  assert.deepEqual(readJson(path.join(pluginDir(root), 'mcp.json')).mcpServers, {});
   const again = cli(['setup', ...clientArgs(), '--apply', '--json']);
   assert.equal(again.status, 0, again.stderr);
   assert.deepEqual(JSON.parse(again.stdout).changedFiles, []);
@@ -360,6 +369,136 @@ test('require doctor exits nonzero for repo-only tools, unknown auth, and unsupp
   const bad = cli(['doctor', '--client', 'cli', '--client-version', '0.0.0', '--json']);
   assert.notEqual(bad.status, 0);
   assert.match(bad.stdout, /unsupported-client/);
+}));
+
+for (const [workflow, mandatory] of Object.entries(WORKFLOWS)) {
+  test(`${workflow} workflow cannot lose mandatory integrations through --servers`, () => fixture(({ root, cli, config }) => {
+    config.tools.githubMcp = 'require';
+    fs.writeFileSync(path.join(root, 'drydock.config.json'), JSON.stringify(config));
+    const selected = Object.hasOwn(mandatory, 'learn') ? 'github' : 'learn';
+    const tools = loadCatalog().servers[selected].requiredTools;
+    const current = observation({
+      workspace: root, clientVersion: loadCatalog().clients.cli.pluginMilestone,
+      observedAt: new Date().toISOString(), workflow,
+      servers: { [selected]: { ...working(), source: 'client', tools,
+        authorization: Object.fromEntries(tools.map((tool) => [tool, 'allowed'])) } },
+    });
+    const result = cli(['doctor', ...clientArgs(), '--workflow', workflow, '--servers', selected,
+      '--observations-stdin', '--session', scope.session, '--json'], JSON.stringify(current));
+    assert.notEqual(result.status, 0, result.stdout);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.mcpReady, false);
+    assert.deepEqual(report.results.map((r) => r.integration), [...Object.keys(mandatory), selected]);
+    for (const name of Object.keys(mandatory)) {
+      assert.equal(report.results.find((r) => r.integration === name).ready, false);
+    }
+    assert.equal(report.results.find((r) => r.integration === selected).ready, true);
+  }));
+}
+
+for (const policy of ['require', 'prefer', 'off']) {
+  test(`additive issue selectors preserve ${policy} policy and custom subsets`, () => fixture(({ root, cli, config }) => {
+    config.tools.githubMcp = policy;
+    fs.writeFileSync(path.join(root, 'drydock.config.json'), JSON.stringify(config));
+    const tools = WORKFLOWS.docs.learn;
+    const current = observation({
+      workspace: root, clientVersion: loadCatalog().clients.cli.pluginMilestone,
+      observedAt: new Date().toISOString(),
+      servers: { learn: { ...working(), source: 'client', tools,
+        authorization: Object.fromEntries(tools.map((tool) => [tool, 'allowed'])) } },
+    });
+    const run = (workflow, names = 'learn') => cli(['doctor', ...clientArgs(), '--workflow', workflow,
+      '--servers', names, '--observations-stdin', '--session', scope.session, '--json'],
+    JSON.stringify({ ...current, workflow }));
+    const missingGithub = run('issue');
+    assert.equal(missingGithub.status, policy === 'require' ? 1 : 0, missingGithub.stderr);
+    const report = JSON.parse(missingGithub.stdout);
+    assert.equal(report.mcpReady, false);
+    assert.deepEqual(report.results.map((r) => r.integration), ['github', 'learn']);
+    assert.equal(report.fallback !== null, policy !== 'require');
+    if (policy === 'off') assert.equal(report.results[0].skipped, true);
+
+    current.servers.learn.tools = [];
+    assert.equal(run('issue').status, 1, 'gh fallback must not cover missing Learn tools');
+    current.servers.learn.tools = tools;
+    current.servers.github = working();
+    const complete = run('issue', 'learn,github');
+    assert.equal(complete.status, 0, complete.stderr);
+    const completeReport = JSON.parse(complete.stdout);
+    assert.equal(completeReport.results.length, 2, 'mandatory selections must be deduplicated');
+    assert.equal(completeReport.mcpReady, policy !== 'off');
+
+    delete current.servers.github;
+    const custom = run('custom');
+    assert.equal(custom.status, 0, custom.stderr);
+    assert.deepEqual(JSON.parse(custom.stdout).results.map((r) => r.integration), ['learn']);
+    assert.equal(JSON.parse(custom.stdout).mcpReady, true);
+  }));
+}
+
+for (const [reuseClient, otherClient] of [['vscode', 'cli'], ['vscode', 'app'], ['cli', 'app']]) {
+  for (const order of [[reuseClient, otherClient], [otherClient, reuseClient]]) {
+    for (const disabled of [false, true]) {
+      test(`${order.join(' then ')} isolates ${disabled ? 'disabled' : 'working'} ${reuseClient} reuse and upgrades`, () => fixture(({ root, cli }) => {
+        const sourceFile = reuseClient === 'vscode' ? path.join('.vscode', 'mcp.json') : 'existing-cli.json';
+        fs.mkdirSync(path.dirname(path.join(root, sourceFile)), { recursive: true });
+        const content = JSON.stringify({ servers: {
+          original: { ...loadCatalog().servers.learn.definition, disabled },
+          unrelated: { url: 'https://unrelated.example/mcp', headers: { Authorization: 'untouched-secret' } },
+        } });
+        fs.writeFileSync(path.join(root, sourceFile), content);
+        const setup = (client) => {
+          const result = cli(['setup', ...clientArgs(client), '--servers', 'learn', '--apply', '--json',
+            ...(client === reuseClient && client !== 'vscode' ? ['--existing', sourceFile] : [])]);
+          assert.equal(result.status, 0, result.stderr);
+          assert.ok(!result.stdout.includes('untouched-secret'));
+          assert.ok(JSON.parse(result.stdout).changedFiles.every((file) =>
+            file === path.join('.drydock', 'mcp.json') || file.startsWith(path.join('.drydock', 'mcp-plugins', client) + path.sep)));
+          return JSON.parse(result.stdout);
+        };
+        setup(order[0]);
+        const beforeSecond = pluginSnapshot(root, order[0]);
+        setup(order[1]);
+        assert.deepEqual(pluginSnapshot(root, order[0]), beforeSecond);
+        assert.equal(fs.readFileSync(path.join(root, sourceFile), 'utf8'), content);
+        assert.deepEqual(readJson(path.join(pluginDir(root, reuseClient), 'mcp.json')).mcpServers, {});
+        assert.deepEqual(readJson(path.join(pluginDir(root, otherClient), 'mcp.json')).mcpServers,
+          { learn: loadCatalog().servers.learn.definition });
+        assert.notEqual(readJson(path.join(pluginDir(root, reuseClient), 'plugin.json')).name,
+          readJson(path.join(pluginDir(root, otherClient), 'plugin.json')).name);
+        for (const client of order) assert.deepEqual(setup(client).changedFiles, []);
+
+        const registryFile = path.join(root, '.drydock', 'mcp.json');
+        const registry = readJson(registryFile);
+        registry.servers.custom = { enabled: true, definition: remote };
+        fs.writeFileSync(registryFile, JSON.stringify(registry));
+        const reusedBeforeUpgrade = pluginSnapshot(root, reuseClient);
+        setup(otherClient);
+        assert.deepEqual(pluginSnapshot(root, reuseClient), reusedBeforeUpgrade);
+        assert.deepEqual(setup(otherClient).changedFiles, []);
+        const otherAfterUpgrade = pluginSnapshot(root, otherClient);
+        setup(reuseClient);
+        assert.deepEqual(pluginSnapshot(root, otherClient), otherAfterUpgrade);
+        assert.deepEqual(readJson(path.join(pluginDir(root, reuseClient), 'mcp.json')).mcpServers, { custom: remote });
+        assert.deepEqual(setup(reuseClient).changedFiles, []);
+        assert.equal(fs.readFileSync(path.join(root, sourceFile), 'utf8'), content);
+      }));
+    }
+  }
+}
+
+test('legacy shared plugin migration stops before changing any registered artifact', () => fixture(({ root, cli }) => {
+  const legacy = path.join(root, '.drydock', 'mcp-plugin');
+  fs.mkdirSync(legacy, { recursive: true });
+  const content = '{"mcpServers":{}}';
+  fs.writeFileSync(path.join(legacy, 'mcp.json'), content);
+  const result = cli(['setup', ...clientArgs(), '--servers', 'learn', '--apply']);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Legacy shared MCP plugin/);
+  assert.match(result.stderr, /Unregister/);
+  assert.equal(fs.readFileSync(path.join(legacy, 'mcp.json'), 'utf8'), content);
+  assert.equal(fs.existsSync(path.join(root, '.drydock', 'mcp.json')), false);
+  assert.equal(fs.existsSync(pluginDir(root)), false);
 }));
 
 test('require stops start before any dock files, branch changes or GitHub fallback', () => fixture(({ root, config }) => {

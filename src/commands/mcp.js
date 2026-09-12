@@ -12,8 +12,7 @@ import { parseObservations, diagnose, WORKFLOWS } from './mcp-readiness.js';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REGISTRY = path.join('.drydock', 'mcp.json');
-const OUTPUT = path.join('.drydock', 'mcp-plugin');
-const RECEIPT = path.join(OUTPUT, 'managed.json');
+const OUTPUT = path.join('.drydock', 'mcp-plugins');
 const usage = 'Usage: drydock mcp setup|doctor --client vscode|cli|app --client-version <version> [--servers github,learn,azure,playwright] [--workflow issue|pull-request|docs|browser] [--import <workspace-file>] [--existing <workspace-file>] [--observations-stdin --session <id>] [--apply] [--json]';
 
 export function versionAtLeast(version, minimum) {
@@ -149,7 +148,7 @@ export default function mcp(args) {
     if (supported === false) throw new Error(`Unsupported ${client} version for portable plugins. ${catalog.clients[client].guidance}`);
     return setup({ root, cfg, cli, catalog, registry, existing, names, observed, client, supported });
   }
-  const required = names ?? Object.keys(WORKFLOWS[workflow] ?? {});
+  const required = [...new Set([...Object.keys(WORKFLOWS[workflow] ?? {}), ...(names ?? [])])];
   if (!required.length) throw new Error('Custom diagnostics require --servers <approved names>.');
   const results = [];
   for (const name of required) {
@@ -167,7 +166,7 @@ export default function mcp(args) {
     if (connection?.definition?.disabled === true && definition) definition = { ...definition, enabled: false };
     const result = diagnose({
       name, definition, observed: builtIn, supported,
-      tools: WORKFLOWS[workflow]?.[name] ?? entry?.requiredTools ?? [],
+      tools: WORKFLOWS[workflow]?.[name] ?? entry?.requiredTools ?? catalog.servers[name]?.requiredTools ?? [],
       prerequisites: prerequisitesFor(entry ?? catalog.servers[name]),
       authenticationRequired: (catalog.servers[name]?.authentication ?? entry?.authentication) !== 'none',
     });
@@ -178,7 +177,9 @@ export default function mcp(args) {
     results.push(result);
   }
   const mcpReady = results.every((r) => r.ready);
-  const fallback = required.every((n) => n === 'github') && cfg.tools.githubMcp !== 'require';
+  const fallback = cfg.tools.githubMcp !== 'require'
+    && results.some((result) => result.integration === 'github' && !result.ready);
+  const canProceed = results.every((result) => result.ready || (result.integration === 'github' && fallback));
   const report = {
     client, clientVersion, workflow, workspace: root, supported,
     mcpReady, fallback: fallback ? 'gh (not tested by MCP doctor)' : null,
@@ -186,11 +187,17 @@ export default function mcp(args) {
     results,
   };
   output(report, cli.flags.has('--json'));
-  if (!mcpReady && !fallback) process.exitCode = 1;
+  if (!canProceed) process.exitCode = 1;
   return report;
 }
 
 function setup({ root, cfg, cli, catalog, registry, existing, names, observed, client, supported }) {
+  const legacy = path.join('.drydock', 'mcp-plugin');
+  if (['plugin.json', 'mcp.json'].some((file) => fs.existsSync(localPath(root, path.join(legacy, file))))) {
+    throw new Error('Legacy shared MCP plugin detected at .drydock/mcp-plugin. Unregister/disable that plugin in every client, then move the reviewed legacy folder to a backup location before setup. Keep .drydock/mcp.json; no files were changed.');
+  }
+  const outputDir = path.join(OUTPUT, client);
+  const receiptPath = path.join(outputDir, 'managed.json');
   const selected = names ?? Object.keys(registry.servers);
   if (!selected.length) throw new Error('No integrations approved. Preview with --servers github,learn,azure,playwright; --apply approves only the selected configuration.');
   const next = structuredClone(registry);
@@ -264,19 +271,19 @@ function setup({ root, cfg, cli, catalog, registry, existing, names, observed, c
   }
   const manifest = readJson(path.join(packageRoot, 'plugin.json'));
   const outputs = {
-    [path.join(OUTPUT, 'plugin.json')]: jsonText({
+    [path.join(outputDir, 'plugin.json')]: jsonText({
       $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
-      name: 'drydock-workspace', version: manifest.version,
+      name: `drydock-workspace-${client}`, version: manifest.version,
       description: manifest.description, author: manifest.author, license: manifest.license,
     }),
-    [path.join(OUTPUT, 'mcp.json')]: jsonText({
+    [path.join(outputDir, 'mcp.json')]: jsonText({
       $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
       mcpServers: generated,
     }),
-    [path.join(OUTPUT, 'docs', 'MCP.md')]: fs.readFileSync(path.join(packageRoot, 'docs', 'MCP.md'), 'utf8'),
+    [path.join(outputDir, 'docs', 'MCP.md')]: fs.readFileSync(path.join(packageRoot, 'docs', 'MCP.md'), 'utf8'),
   };
-  copySkillOutputs(path.join(packageRoot, 'skills'), path.join(OUTPUT, 'skills'), outputs);
-  const receiptFile = localPath(root, RECEIPT);
+  copySkillOutputs(path.join(packageRoot, 'skills'), path.join(outputDir, 'skills'), outputs);
+  const receiptFile = localPath(root, receiptPath);
   const previous = fs.existsSync(receiptFile) ? readJson(receiptFile) : { files: {} };
   const outputPlan = planWrites(root, outputs, previous.files);
   const registryFile = localPath(root, REGISTRY);
@@ -285,7 +292,7 @@ function setup({ root, cfg, cli, catalog, registry, existing, names, observed, c
   if (before !== registryText) outputPlan.push({ relative: REGISTRY, file: registryFile, content: registryText, before });
   const receipt = jsonText({ version: 1, client, files: Object.fromEntries(Object.entries(outputs).map(([file, content]) => [file, digest(content)])) });
   const priorReceipt = fs.existsSync(receiptFile) ? fs.readFileSync(receiptFile, 'utf8') : null;
-  if (receipt !== priorReceipt) outputPlan.push({ relative: RECEIPT, file: receiptFile, content: receipt, before: priorReceipt });
+  if (receipt !== priorReceipt) outputPlan.push({ relative: receiptPath, file: receiptFile, content: receipt, before: priorReceipt });
   if (cli.flags.has('--apply')) applyWrites(outputPlan);
   const result = {
     applied: cli.flags.has('--apply'), client, supported, changedFiles: outputPlan.map((p) => p.relative),
