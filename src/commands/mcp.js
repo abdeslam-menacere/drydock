@@ -205,16 +205,26 @@ function setup({ root, cfg, cli, catalog, registry, existing, names, observed, c
     ? serverMap(readJson(localPath(root, cli.options['--import']))) : null;
   const decisions = [];
   for (const name of selected) {
+    const importedDefinition = imported && Object.hasOwn(imported, name) ? imported[name] : undefined;
+    if (importedDefinition !== undefined) {
+      validateDefinition(importedDefinition);
+      if (importedDefinition.tools !== undefined) {
+        throw new Error('Client-specific tool filters cannot be migrated automatically. Keep this existing connection or translate the filter in the target client yourself.');
+      }
+      if (next.servers[name] && importedDefinition.disabled !== undefined
+        && next.servers[name].enabled !== !importedDefinition.disabled) {
+        throw new Error('Migration disabled state conflicts with an approved definition. Reconcile the enabled flag in .drydock/mcp.json explicitly; nothing changed.');
+      }
+    }
     if (name === 'github' && cfg.tools.githubMcp === 'off') {
       decisions.push({ integration: name, action: 'off: not enabled or generated' });
       continue;
     }
     if (!next.servers[name]) {
       const baseline = catalog.servers[name];
-      if (!baseline && !imported?.[name]) throw new Error('Unknown integration. Add an approved definition to .drydock/mcp.json or select it from --import.');
-      const definition = imported?.[name] ?? baseline.definition;
+      if (!baseline && importedDefinition === undefined) throw new Error('Unknown integration. Add an approved definition to .drydock/mcp.json or select it from --import.');
+      const definition = importedDefinition ?? baseline.definition;
       validateDefinition(definition);
-      if (definition.tools) throw new Error('Client-specific tool filters cannot be migrated automatically. Keep this existing connection or translate the filter in the target client yourself.');
       next.servers[name] = {
         enabled: definition.disabled !== true,
         definition: canonicalDefinition(definition),
@@ -222,9 +232,9 @@ function setup({ root, cfg, cli, catalog, registry, existing, names, observed, c
           prerequisites: baseline.prerequisites ?? [], requiredTools: baseline.requiredTools ?? [],
           authentication: baseline.authentication,
         } : {}),
-        ...(!imported?.[name] && baseline ? { catalogDefinition: baseline.definition } : {}),
+        ...(importedDefinition === undefined && baseline ? { catalogDefinition: baseline.definition } : {}),
       };
-    } else if (imported?.[name] && !same(canonicalDefinition(imported[name]), next.servers[name].definition)) {
+    } else if (importedDefinition !== undefined && !same(canonicalDefinition(importedDefinition), next.servers[name].definition)) {
       throw new Error('Migration conflicts with an approved definition. Reconcile .drydock/mcp.json explicitly; nothing changed.');
     }
   }

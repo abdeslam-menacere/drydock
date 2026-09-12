@@ -135,6 +135,47 @@ test('additional approved servers need no core integration code', () => {
   assert.ok(validateDefinition({ command: 'npx', args: ['-y', 'example-mcp@1.2.3'] }));
 });
 
+const unsupportedRunners = [
+  ['Windows npx tag', { command: 'npx.cmd', args: ['--no', '@playwright/mcp@latest'] }],
+  ['case-insensitive npx alias range', { command: 'NPX.EXE', args: ['--no', '@playwright/mcp@^0.0.80'] }],
+  ['Windows dnx tag', { command: 'dnx.exe', args: ['Azure.Mcp@latest', '--', 'server', 'start'] }],
+  ['separate multi-package flags', { command: 'npx', args: ['--no', '--package', '@playwright/mcp@latest', '--package', 'typescript@5.9.2', 'playwright-mcp'] }],
+  ['all-pinned multi-package flags', { command: 'npx', args: ['--package', '@playwright/mcp@0.0.80', '--package', 'typescript@5.9.2', 'playwright-mcp'] }],
+  ['inline package flag', { command: 'npx.cmd', args: ['--package=@playwright/mcp@latest', '--package=typescript@5.9.2', 'playwright-mcp'] }],
+  ['short package flags', { command: 'npx', args: ['-p', '@playwright/mcp@latest', '-p', 'typescript@5.9.2', 'playwright-mcp'] }],
+  ['positional unpinned package with decoy', { command: 'npx', args: ['--no', '@playwright/mcp', 'unrelated@5.9.2'] }],
+  ['pinned positional plus package dispatch', { command: 'npx', args: ['--no', 'typescript@5.9.2', '--package', '@playwright/mcp@latest'] }],
+  ['pinned-looking URL', { command: 'npx', args: ['--no', 'https://example.com/package@1.2.3'] }],
+  ['prerelease package', { command: 'npx', args: ['--no', '@playwright/mcp@0.0.81-beta.1'] }],
+  ['npm alias specifier', { command: 'npx', args: ['--no', 'alias@npm:example-mcp@1.2.3'] }],
+  ['call dispatch', { command: 'npx', args: ['--call', 'example-mcp@1.2.3'] }],
+  ['unsupported double wrapper suffix', { command: 'npx.cmd.exe', args: ['@playwright/mcp@latest'] }],
+  ['npm exec wrapper', { command: 'npm.cmd', args: ['exec', '--package', '@playwright/mcp@latest', '--', 'playwright-mcp'] }],
+  ['pnpm dlx wrapper', { command: 'pnpm.cmd', args: ['dlx', '@playwright/mcp@latest'] }],
+  ['dotnet tool wrapper', { command: 'dotnet.exe', args: ['tool', 'exec', 'Azure.Mcp'] }],
+  ['dnx version override', { command: 'dnx', args: ['Azure.Mcp@2.0.5', '--version', 'latest'] }],
+  ['dnx unpinned package with decoy', { command: 'DNX.CMD', args: ['Azure.Mcp', '--', 'unrelated@2.0.5'] }],
+];
+
+for (const [name, definition] of unsupportedRunners) {
+  test(`runner validation rejects ${name} without executing packages`, () => {
+    assert.throws(() => validateDefinition(definition), /Unsupported package-runner invocation.*no values logged/);
+  });
+}
+
+for (const command of ['npx', 'NPX', 'npx.cmd', 'NPX.CMD', 'npx.exe', 'npx.bat', 'npx.ps1']) {
+  test(`${command} accepts the same exact positional package pin`, () => {
+    const definition = { command, args: ['--no', '@playwright/mcp@0.0.80', '--headless'] };
+    assert.equal(validateDefinition(definition), definition);
+  });
+}
+for (const command of ['dnx', 'DNX', 'dnx.exe', 'DNX.CMD', 'dnx.bat', 'dnx.ps1']) {
+  test(`${command} accepts one exact NuGet pin with delimited server arguments`, () => {
+    const definition = { command, args: ['Azure.Mcp@2.0.5', '--', 'server', 'start', '--read-only'] };
+    assert.equal(validateDefinition(definition), definition);
+  });
+}
+
 test('JSONC migration preserves its source and does not echo malformed content', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'drydock-mcp-json-'));
   try {
@@ -297,6 +338,110 @@ test('migration requires explicit selection and refuses credentials without touc
   const rejected = cli(['setup', ...clientArgs(), '--import', 'source.json', '--servers', 'secret', '--apply']);
   assert.notEqual(rejected.status, 0);
   assert.ok(!rejected.stderr.includes('sensitive-example'));
+}));
+
+for (const disabled of [true, false]) {
+  test(`re-import explicitly conflicting disabled=${disabled} is refused without writes`, () => fixture(({ root, cli }) => {
+    const file = path.join(root, 'source.json');
+    const sourceDefinition = loadCatalog().servers.learn.definition;
+    const args = ['setup', ...clientArgs(), '--servers', 'learn', '--import', 'source.json', '--apply', '--json'];
+    fs.writeFileSync(file, JSON.stringify({ servers: { learn: { ...sourceDefinition, disabled: !disabled } } }));
+    const first = cli(args);
+    assert.equal(first.status, 0, first.stderr);
+    const registryFile = path.join(root, '.drydock', 'mcp.json');
+    const beforeRegistry = fs.readFileSync(registryFile, 'utf8');
+    const beforePlugin = pluginSnapshot(root, 'cli');
+    const sourceText = JSON.stringify({ servers: { learn: { ...sourceDefinition, disabled } } });
+    fs.writeFileSync(file, sourceText);
+    const rejected = cli(args);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /disabled state conflicts/);
+    assert.equal(fs.readFileSync(registryFile, 'utf8'), beforeRegistry);
+    assert.deepEqual(pluginSnapshot(root, 'cli'), beforePlugin);
+    assert.equal(fs.readFileSync(file, 'utf8'), sourceText);
+  }));
+}
+
+for (const approved of [false, true]) {
+  for (const tools of [[], ['microsoft_docs_search']]) {
+    test(`${approved ? 'repeat' : 'first'} import refuses ${tools.length ? 'restricted' : 'empty'} tool filters before normalization`, () => fixture(({ root, cli }) => {
+      const baseArgs = ['setup', ...clientArgs(), '--servers', 'learn', '--apply', '--json'];
+      if (approved) {
+        const initial = cli(baseArgs);
+        assert.equal(initial.status, 0, initial.stderr);
+      }
+      const registryFile = path.join(root, '.drydock', 'mcp.json');
+      const beforeRegistry = approved ? fs.readFileSync(registryFile, 'utf8') : null;
+      const beforePlugin = approved ? pluginSnapshot(root, 'cli') : null;
+      const sourceText = JSON.stringify({ servers: { learn: { ...loadCatalog().servers.learn.definition, tools } } });
+      fs.writeFileSync(path.join(root, 'source.json'), sourceText);
+      const rejected = cli([...baseArgs, '--import', 'source.json']);
+      assert.notEqual(rejected.status, 0);
+      assert.match(rejected.stderr, /Client-specific tool filters cannot be migrated/);
+      if (approved) {
+        assert.equal(fs.readFileSync(registryFile, 'utf8'), beforeRegistry);
+        assert.deepEqual(pluginSnapshot(root, 'cli'), beforePlugin);
+      } else {
+        assert.equal(fs.existsSync(path.join(root, '.drydock')), false);
+      }
+      assert.equal(fs.readFileSync(path.join(root, 'source.json'), 'utf8'), sourceText);
+    }));
+  }
+}
+
+test('matching disabled re-imports are idempotent and omission never re-enables a server', () => fixture(({ root, cli }) => {
+  const file = path.join(root, 'source.json');
+  const definition = loadCatalog().servers.learn.definition;
+  const args = ['setup', ...clientArgs(), '--servers', 'learn', '--import', 'source.json', '--apply', '--json'];
+  fs.writeFileSync(file, JSON.stringify({ servers: { learn: { ...definition, disabled: true } } }));
+  const first = cli(args);
+  assert.equal(first.status, 0, first.stderr);
+  assert.deepEqual(readJson(path.join(pluginDir(root), 'mcp.json')).mcpServers, {});
+  for (const sourceDefinition of [{ ...definition, disabled: true }, definition]) {
+    fs.writeFileSync(file, JSON.stringify({ servers: { learn: sourceDefinition } }));
+    const again = cli(args);
+    assert.equal(again.status, 0, again.stderr);
+    assert.deepEqual(JSON.parse(again.stdout).changedFiles, []);
+    assert.equal(readJson(path.join(root, '.drydock', 'mcp.json')).servers.learn.enabled, false);
+  }
+}));
+
+test('re-import validates raw unsupported fields and null definitions', () => fixture(({ root, cli }) => {
+  const args = ['setup', ...clientArgs(), '--servers', 'learn', '--apply', '--json'];
+  assert.equal(cli(args).status, 0);
+  const before = pluginSnapshot(root, 'cli');
+  for (const definition of [null, { ...loadCatalog().servers.learn.definition, env: { TOKEN: 'sensitive-example' } }]) {
+    fs.writeFileSync(path.join(root, 'source.json'), JSON.stringify({ servers: { learn: definition } }));
+    const rejected = cli([...args, '--import', 'source.json']);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /Unsafe or unsupported MCP definition/);
+    assert.ok(!rejected.stderr.includes('sensitive-example'));
+    assert.deepEqual(pluginSnapshot(root, 'cli'), before);
+  }
+}));
+
+for (const [name, definition] of unsupportedRunners) {
+  test(`import rejects ${name} before writing configuration`, () => fixture(({ root, cli }) => {
+    const sourceText = JSON.stringify({ servers: { custom: definition } });
+    fs.writeFileSync(path.join(root, 'source.json'), sourceText);
+    const result = cli(['setup', ...clientArgs(), '--servers', 'custom', '--import', 'source.json', '--apply', '--json']);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Unsupported package-runner invocation/);
+    assert.equal(fs.existsSync(path.join(root, '.drydock')), false);
+    assert.equal(fs.readFileSync(path.join(root, 'source.json'), 'utf8'), sourceText);
+  }));
+}
+
+test('pinned Windows runner aliases import idempotently without package execution', () => fixture(({ root, cli }) => {
+  const definition = { type: 'stdio', command: 'npx.cmd', args: ['--no', '@playwright/mcp@0.0.80', '--headless'] };
+  fs.writeFileSync(path.join(root, 'source.json'), JSON.stringify({ servers: { browser: definition } }));
+  const args = ['setup', ...clientArgs(), '--servers', 'browser', '--import', 'source.json', '--apply', '--json'];
+  const first = cli(args);
+  assert.equal(first.status, 0, first.stderr);
+  assert.deepEqual(readJson(path.join(pluginDir(root), 'mcp.json')).mcpServers.browser, definition);
+  const again = cli(args);
+  assert.equal(again.status, 0, again.stderr);
+  assert.deepEqual(JSON.parse(again.stdout).changedFiles, []);
 }));
 
 test('built-in reuse needs scoped evidence and does not claim readiness from reuse', () => fixture(({ root, cli }) => {

@@ -102,15 +102,39 @@ export function validateDefinition(definition) {
       || (definition.args !== undefined && (!Array.isArray(definition.args) || !definition.args.every((s) => typeof s === 'string')))) refuse();
     const args = definition.args ?? [];
     if (args.some((s) => /token|secret|password|credential|authorization|bearer|(?:api|access|client)[_-]?key|(?:^|[ _-])key(?:[=:]|$)|:\/\/[^/]*@|\$\{|[\r\n]/i.test(s))) refuse();
-    // Package runners must use exact, stable versions, never latest or ranges.
-    if (['npx', 'dnx'].includes(definition.command) && !args.some((s) => /@\d+\.\d+\.\d+$/.test(s))) refuse();
-    if (definition.command === 'dotnet' && args.includes('dnx')) refuse();
+    validateRunner(definition.command, args);
   }
   if (definition.headers !== undefined && (!object(definition.headers)
     || Object.entries(definition.headers).some(([k, v]) =>
       !['X-MCP-Tools', 'X-MCP-Toolsets', 'X-MCP-Readonly'].includes(k)
       || typeof v !== 'string' || !/^[a-zA-Z0-9_, -]+$/.test(v)))) refuse();
   return definition;
+}
+
+function validateRunner(command, args) {
+  const runner = command.toLowerCase().replace(/\.(?:cmd|exe|bat|ps1)$/, '');
+  const refuse = () => {
+    throw new Error('Unsupported package-runner invocation. Use one exact stable package with npx [--no|-y|--yes|--offline] <package>@<version> [server args], or dnx <package>@<version> [-- server args]. Package-selection flags and other package-manager wrappers are not supported; no values logged.');
+  };
+  // Wrapper spellings must obey the same pin rules as their unsuffixed command.
+  if (/^(?:npx|dnx)\./.test(runner)
+    || ['npm', 'pnpm', 'yarn', 'bun', 'corepack', 'uv', 'uvx', 'pipx'].includes(runner)
+    || (runner === 'dotnet' && ['dnx', 'tool', 'run'].includes(args[0]?.toLowerCase()))) refuse();
+  if (runner !== 'npx' && runner !== 'dnx') return;
+
+  const version = '(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)';
+  if (runner === 'npx') {
+    // Deliberately accept only the single-positional-package form. Merely finding
+    // a pinned-looking token cannot validate --package/-p/--call dispatch.
+    if (args.some((arg) => /^(?:--package|--call)(?:=|$)|^-[pc]/.test(arg))) refuse();
+    let index = 0;
+    while (['--no', '-y', '--yes', '--offline'].includes(args[index])) index++;
+    const packageSpec = new RegExp(`^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*@${version}$`);
+    if (!packageSpec.test(args[index] ?? '')) refuse();
+  } else {
+    const packageSpec = new RegExp(`^[A-Za-z0-9][A-Za-z0-9._-]*@${version}$`);
+    if (!packageSpec.test(args[0] ?? '') || (args.length > 1 && args[1] !== '--')) refuse();
+  }
 }
 
 export function canonicalDefinition(definition) {

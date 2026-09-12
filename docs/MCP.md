@@ -192,6 +192,12 @@ variables translate. Environment blocks, input references, arbitrary headers,
 URL credentials/query strings, automatic approval, and client-specific tool
 filters are not portable through this adapter. Keep such an existing connection
 or configure its authentication/filter in the destination client yourself.
+This validation applies on every import, even if the server was already
+approved: filters (including an empty `tools` list) are rejected before
+normalization. An explicit `disabled` value conflicting with the canonical
+`enabled` flag is also rejected without writes; reconcile that flag explicitly
+before retrying. Matching disable intent is preserved, and omitting `disabled`
+on re-import never re-enables an already-disabled entry.
 Allowed headers are GitHub's non-secret tool-selection/read-only headers only.
 Never put tokens in commands, arguments, URLs, names, observations, or this
 registry. Setup is not a secret manager and cannot identify every conceivable
@@ -216,7 +222,24 @@ an approved definition using the same schema:
 ```
 
 Local definitions use `command` and `args`, with exact stable package versions
-for package runners. No wildcard tool grant is emitted. Custom server
+for supported package runners. The supported runner forms are deliberately narrow:
+
+```text
+npx [--no|-y|--yes|--offline] <npm-package>@<major.minor.patch> [server arguments]
+dnx <NuGet-package>@<major.minor.patch> [-- server arguments]
+```
+
+The actual package position must contain one exact, non-prerelease version;
+an unrelated argument ending in a version does not establish a pin. Windows
+`.cmd`, `.exe`, `.bat`, and `.ps1` aliases, including case variants, undergo the
+same checks. Prefer the bare executable name for cross-platform definitions.
+`npx --package`/`-p`, `--call`/`-c`, multi-package selection (even all-pinned),
+alternate package-manager wrappers such as `npm exec`/`pnpm dlx`, and `dotnet`
+package-dispatch forms are rejected, not silently normalized or partially
+validated. Use the supported single-package form or an explicitly installed
+server executable instead. Validation never runs these commands.
+
+No wildcard tool grant is emitted. Custom server
 authentication is client-managed; no token/environment interpolation is
 invented. `doctor --workflow custom --servers team-docs` checks `requiredTools`
 and the corresponding observed authorization. Runtime detection only checks
