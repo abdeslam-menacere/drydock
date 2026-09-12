@@ -5,6 +5,7 @@ import { log } from '../lib/log.js';
 import { has, runLive } from '../lib/sh.js';
 import * as gh from '../lib/gh.js';
 import { runInterview } from './config.js';
+import { assertGhAllowed } from './mcp-policy.js';
 
 // Docks live in-repo so workspace-scoped agents can read them; they are build
 // artefacts, not source, so they stay out of git.
@@ -41,7 +42,7 @@ export default async function init(args) {
   log.head('Preflight');
   check('git', has('git'), 'required');
   check('gh (GitHub CLI)', has('gh'), 'required for issue + PR automation — https://cli.github.com');
-  if (has('gh')) check('gh authenticated', gh.authOk(), 'run: gh auth login');
+  if (loadConfig(root).tools.githubMcp !== 'require' && has('gh')) check('gh authenticated', gh.authOk(), 'run: gh auth login');
   check('code (VS Code CLI)', has('code'), 'optional — set "editor": null in config for headless');
 
   // 5. The backstop that makes autonomy safe
@@ -64,6 +65,8 @@ export default async function init(args) {
   await runInterview(root);
 
   log.head('Next');
+  log.raw('  drydock mcp setup --client <vscode|cli|app> --client-version <version> --servers <names>');
+  log.raw('  # Preview approved integrations; add --apply only after reviewing. See docs/MCP.md.');
   log.raw('  drydock start <issue-number>    # open a dock for a GitHub issue');
   log.raw('  drydock status                 # see every dock in flight');
   log.raw('');
@@ -92,6 +95,12 @@ function ensureGitignore(root) {
 function mergeGate(root, cfg) {
   log.head('Merge gate');
   const flow = cfg.profile === 'flow';
+  if (cfg.tools.githubMcp === 'require') {
+    log.warn('GitHub MCP required: cannot inspect branch protection through the CLI gh transport. Ask the active MCP agent to inspect required checks.');
+    if (flow) flowUnenforced(cfg);
+    return;
+  }
+  assertGhAllowed(cfg, 'reading repository protection');
 
   if (!gh.available()) {
     log.warn('gh not found — cannot verify branch protection.');

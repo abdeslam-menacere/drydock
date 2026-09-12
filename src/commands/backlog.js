@@ -5,6 +5,7 @@ import * as git from '../lib/git.js';
 import { gateMarks } from './status.js';
 import { routeForDock } from './route.js';
 import { readPreviews, alive } from './preview.js';
+import { assertGhAllowed } from './mcp-policy.js';
 
 /** Preview URLs by issue, for previews that are actually running. */
 function livePreviews(root) {
@@ -170,6 +171,7 @@ export default function backlog(args = []) {
 
   const root = repoRoot();
   const cfg = loadConfig(root);
+  assertGhAllowed(cfg, 'reading the GitHub backlog');
   const docks = listDocks(root);
 
   const { issues, source, notice, truncated } = collect(root, docks);

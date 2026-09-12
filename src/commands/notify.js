@@ -1,5 +1,6 @@
 import { log } from '../lib/log.js';
 import * as gh from '../lib/gh.js';
+import { assertGhAllowed } from './mcp-policy.js';
 
 // Ordered least to most talkative. `comments.verbosity` names one of these.
 const RANK = { off: 0, milestones: 1, 'milestones-findings': 2, full: 3 };
@@ -26,6 +27,7 @@ export function wantsLifecycle(cfg) {
 export function lifecycle(cfg, issue, body, cwd) {
   if (!wantsLifecycle(cfg)) return { posted: false, reason: 'policy' };
 
+  assertGhAllowed(cfg, 'posting lifecycle comments');
   try {
     const r = gh.comment(issue, body, cwd);
     if (r.skipped) return { posted: false, reason: 'gh-unavailable' };

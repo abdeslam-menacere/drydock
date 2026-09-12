@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "format": "Agent Plugins 1.0.0",
+  "clients": {
+    "vscode": {
+      "minimum": null,
+      "pluginMilestone": "1.110.0",
+      "guidance": "Current VS Code documents Agent Plugins support. 1.110 introduced experimental plugins, not a verified canonical 1.0 minimum. Confirm support in this installed client.",
+      "install": "Register only .drydock/mcp-plugins/vscode (drydock-workspace-vscode) using VS Code's documented chat.pluginLocations setting, then enable/review it in the Plugins UI. Do not register the parent folder or another client's variant, and do not auto-approve trust.",
+      "sources": [
+        "https://github.com/microsoft/vscode-docs/blob/main/docs/agent-customization/agent-plugins.md",
+        "https://github.com/microsoft/vscode-docs/blob/main/release-notes/v1_110.md"
+      ]
+    },
+    "cli": {
+      "minimum": null,
+      "pluginMilestone": "1.0.74",
+      "guidance": "CLI 1.0.74 added Open Plugin Spec v1 manifests/mcp.json. A minimum for all current canonical Agent Plugins 1.0 semantics is not published; confirm support in the installed client.",
+      "install": "After separate installation/download/trust approval: copilot plugin install ./.drydock/mcp-plugins/cli . Activate only drydock-workspace-cli in this client. Reinstall this variant after regeneration; the client caches installed content. CLI/app may share installed plugins, so do not activate both variants in the same session.",
+      "sources": [
+        "https://github.com/github/copilot-cli/blob/main/changelog.md",
+        "https://github.com/github/docs/blob/main/content/copilot/how-tos/copilot-cli/customize-copilot/plugins-creating.md"
+      ]
+    },
+    "app": {
+      "minimum": null,
+      "pluginMilestone": null,
+      "guidance": "Current Copilot app documentation supports portable plugins; no numeric minimum version is published. Confirm canonical Agent Plugins 1.0 support in this installed client.",
+      "install": "Install the app variant with copilot plugin install ./.drydock/mcp-plugins/app, then inspect Customize > MCP > Installed in the app. Activate only drydock-workspace-app for this app session; CLI/app may share installed plugins, so do not activate both variants in the same session. App-native plugin installation uses Customize > Plugins and a configured marketplace, not an invented local-folder picker. Confirm loaded tools in the active app session.",
+      "sources": [
+        "https://github.com/github/docs/blob/main/content/copilot/how-tos/github-copilot-app/customize-github-copilot-app.md"
+      ]
+    }
+  },
+  "servers": {
+    "github": {
+      "definition": {
+        "type": "streamable-http",
+        "url": "https://api.githubcopilot.com/mcp/",
+        "headers": {
+          "X-MCP-Tools": "issue_read,issue_write,add_issue_comment,pull_request_read"
+        }
+      },
+      "authentication": "client",
+      "requiredTools": ["issue_read", "issue_write", "add_issue_comment"],
+      "prerequisites": [],
+      "source": "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md"
+    },
+    "learn": {
+      "definition": {
+        "type": "streamable-http",
+        "url": "https://learn.microsoft.com/api/mcp"
+      },
+      "authentication": "none",
+      "requiredTools": ["microsoft_docs_search", "microsoft_docs_fetch"],
+      "prerequisites": [],
+      "source": "https://github.com/MicrosoftDocs/mcp/blob/main/README.md"
+    },
+    "azure": {
+      "definition": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "--no", "@azure/mcp@2.0.5",
+          "server", "start", "--read-only",
+          "--tool", "azmcp_subscription_list",
+          "--tool", "azmcp_group_list"
+        ]
+      },
+      "authentication": "user-identity",
+      "requiredTools": ["azmcp_subscription_list", "azmcp_group_list"],
+      "prerequisites": [
+        {
+          "name": "Node.js 20.12+ (use a supported LTS)",
+          "command": "node",
+          "minimum": "20.12.0",
+          "action": "Install a supported Node LTS and npm/npx yourself. Then approve/cache @azure/mcp@2.0.5 explicitly; see docs/MCP.md."
+        }
+      ],
+      "dotnetAlternative": {
+        "package": "Azure.Mcp",
+        "version": "2.0.5",
+        "recommendedRuntime": ".NET 10 stable",
+        "vendorMinimum": ".NET 10 Preview 6 for dnx (Drydock recommends stable .NET 10)"
+      },
+      "source": "https://github.com/microsoft/mcp/tree/024d316e913bc026bd08f4a34e34d07d2c568d00/servers/Azure.Mcp.Server"
+    },
+    "playwright": {
+      "definition": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["--no", "@playwright/mcp@0.0.80", "--headless", "--isolated"]
+      },
+      "authentication": "none",
+      "requiredTools": ["browser_navigate", "browser_snapshot"],
+      "prerequisites": [
+        {
+          "name": "Node.js 20.12+ for Drydock (Playwright MCP itself requires 18+)",
+          "command": "node",
+          "minimum": "20.12.0",
+          "action": "Install a supported Node LTS/npm and a supported browser. Review the upstream dependency caveat and explicitly cache @playwright/mcp@0.0.80; see docs/MCP.md."
+        }
+      ],
+      "dependencyCaveat": "This non-prerelease MCP package pins playwright and playwright-core to 1.63.0-alpha-2026-08-31. The entire dependency tree is not stable. Review before installing.",
+      "source": "https://github.com/microsoft/playwright-mcp/blob/v0.0.80/package.json"
+    }
+  }
+}

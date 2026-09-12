@@ -10,6 +10,7 @@ import { assertOnBranch } from './start.js';
 import { loadConfig, repoRoot, readDock } from '../lib/config.js';
 import { parseArgs } from '../lib/args.js';
 import { die } from '../lib/log.js';
+import { assertGhAllowed } from './mcp-policy.js';
 
 const scoresDir = (root) => path.join(root, STATE_DIR, 'scores');
 const scorePath = (issue, root) => path.join(scoresDir(root), `${issue}.json`);
@@ -174,6 +175,11 @@ export function ensureScore(cfg, dock, head, root, { quiet = false } = {}) {
   const existing = readScore(dock.issue, root);
   if (!s.enabled) return existing;
   if (scoreState(existing, head) === 'fresh') return existing;
+  if (cfg.tools?.githubMcp === 'require') {
+    const reason = 'GitHub MCP required; standalone scorer cannot read the issue through MCP. No gh fallback attempted.';
+    if (!quiet) log.warn(reason);
+    return record({ issue: dock.issue, sha: head, unavailable: reason }, root);
+  }
 
   const missing = !s.command ? 'scorer.command is not set'
     : !s.model ? 'scorer.model is not set — the scorer must name its model, and it should not be the developer\'s'
@@ -193,6 +199,7 @@ export function ensureScore(cfg, dock, head, root, { quiet = false } = {}) {
 
   const files = (git.diffFiles(from, head, dock.worktree) ?? []).map((f) => f.path);
   const ranges = git.diffRanges(from, head, dock.worktree);
+  assertGhAllowed(cfg, 'reading the scorer issue');
   const issue = gh.getIssue(dock.issue, dock.worktree);
 
   const command = String(s.command).replace(/\{model\}/g, s.model);

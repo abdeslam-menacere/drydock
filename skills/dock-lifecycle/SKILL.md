@@ -18,6 +18,16 @@ inside a dock worktree. State always resolves to the main repo.
 
 ## Execution order
 
+### 0. Check the required integration capabilities
+
+Follow `dock-github` before reading an issue or making lifecycle comments.
+`drydock mcp setup` previews portable configuration; `drydock mcp doctor`
+distinguishes declaration from actual loaded tools, sign-in, and authorization.
+Neither command grants client trust or installs software. Under
+`tools.githubMcp=require`, unknown or missing capabilities stop dependent work,
+and the standalone CLI cannot substitute its `gh` transport. Under `prefer`,
+explain fallback; under `off`, never enable GitHub MCP.
+
 ### 1. Open the dock
 
 ```bash

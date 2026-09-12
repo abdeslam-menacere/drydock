@@ -8,6 +8,7 @@ import * as git from '../lib/git.js';
 import * as gh from '../lib/gh.js';
 import * as notify from './notify.js';
 import { runInterview } from './config.js';
+import { assertGhAllowed, githubPreflightText } from './mcp-policy.js';
 
 export default async function start(args) {
   const cli = parseArgs(args, { flags: ['--force', '--preview'] });
@@ -26,6 +27,7 @@ export default async function start(args) {
   }
 
   // --- Fetch the issue. GitHub Issues are the source of truth. ---
+  assertGhAllowed(cfg, 'opening an issue dock');
   let meta = { number: Number(issue), title: `issue-${issue}`, body: '', url: '' };
   if (gh.available()) {
     const fetched = gh.getIssue(issue, root);
@@ -227,6 +229,10 @@ function renderBrief(meta, cfg, branch) {
 > Your entire scope is this one issue. Do not touch work outside it.
 
 ${renderPolicy(cfg)}
+
+## Integration prerequisites
+
+${githubPreflightText(cfg)}
 
 ## Rules of this dock
 

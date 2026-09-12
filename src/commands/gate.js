@@ -9,6 +9,7 @@ import { renderReceipt } from './receipt.js';
 import { previewFor } from './preview.js';
 import { assertOnBranch } from './start.js';
 import { resolveActor, isAgent } from '../lib/actor.js';
+import { assertGhAllowed } from './mcp-policy.js';
 
 // Re-exported so callers that already know `gate` as the home of attribution
 // keep working; the implementations moved to lib/actor.js to break an import
@@ -63,6 +64,7 @@ export default function gate(args) {
   if (!dock) die(`No dock for issue #${issue}.`, 'Run `drydock start ' + issue + '` first.');
 
   assertOnBranch(dock, 'recording a verdict');
+  if (dock.pr || notify.wantsLifecycle(cfg)) assertGhAllowed(cfg, 'publishing a gate verdict');
 
   // Gates are ordered, and only the gates this change earns are enforced.
   // A gate outside the route may still be recorded — additions are always
